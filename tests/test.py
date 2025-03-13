@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import matplotlib.pyplot as plt
-import anonymity_loss_coefficient
+from anonymity_loss_coefficient.anonymity_loss_coefficient import AnonymityLossCoefficient
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
@@ -18,26 +18,8 @@ def savefigs(plt, name):
         out_path = os.path.join(plots_path, path_name)
         plt.savefig(out_path)
 
-def plot_abs_weights(out_name):
-    alc = anonymity_loss_coefficient.AnonymityLossCoefficient()
-    pb_values = np.concatenate([np.arange(0, 0.99, 0.01), np.arange(0.991, 0.999, 0.001)])
-    weight_values = [0.5, 1.0, 2.0]
-    plt.figure(figsize=((8, 5)))
-    for weight in weight_values:
-        alc.set_param('pcc_abs_weight_strength', weight)
-        abs_weight_values = [alc._get_pcc_abs_weight(pb) for pb in pb_values]
-        plt.plot(pb_values, abs_weight_values, label=f'pcc_abs_weight_strength = {weight}')
-    plt.xlim(0.5, 1.0)
-    plt.grid(True)
-    plt.ylim(0, 1)
-    plt.xlabel('PCC', fontsize=12)
-    plt.ylabel('abs_weight', fontsize=12)
-    plt.legend()
-    plt.tight_layout()
-    savefigs(plt, out_name)
-
 def plot_cov_adjust(out_name):
-    alc = anonymity_loss_coefficient.AnonymityLossCoefficient()
+    alc = AnonymityLossCoefficient()
     ranges = [[0.0001, 0.001], [0.001, 0.01], [0.01, 0.1], [0.1, 1]]
     arrays = [np.linspace(start, end, 1000) for start, end in ranges]
     cov_values = np.concatenate(arrays)
@@ -69,7 +51,7 @@ def plot_cov_adjust(out_name):
     savefigs(plt, out_name)
 
 def plot_base_adjusted_pcc(out_name):
-    alc = anonymity_loss_coefficient.AnonymityLossCoefficient()
+    alc = AnonymityLossCoefficient()
     increase_values = [0.2, 0.5, 0.8, 0.98]
     pcc_base_values = np.linspace(0, 0.999, 1000)
     fig, ax = plt.subplots(figsize=((8, 5)))
@@ -104,7 +86,7 @@ def plot_identical_cov(out_name, limit=1.0):
     constant precision improvement puts an upper bound on the ALC. We also find that
     the coverage also places an upper bound.
     '''
-    alc = anonymity_loss_coefficient.AnonymityLossCoefficient()
+    alc = AnonymityLossCoefficient()
     cov_values = np.logspace(np.log10(0.0001), np.log10(1), 5000)
     p_base_values = np.random.uniform(0, limit, len(cov_values))
 
@@ -184,7 +166,7 @@ def plot_prec_cov_for_equal_pcc(out_name):
     ''' The purpose of this plot is to see how different values of prec
         and cov can have the same pcc.
     '''
-    alc = anonymity_loss_coefficient.AnonymityLossCoefficient()
+    alc = AnonymityLossCoefficient()
     alpha = alc.get_param('cov_adjust_strength')
     print(f'for pcc = 0.5, and prec 1.0, cov = {alc.cov_from_pcc_prec(0.5, 1.0)}')
     print(f'for pcc = 0.5, and cov 0.001484, prec = {alc.prec_from_pcc_cov(0.5, 0.001484)}')
@@ -219,7 +201,7 @@ def plot_varying_base_coverage(out_name):
     ''' The purpose of this plot is to see the effect of having a different
         base coverage than attack coverage. We vary the base coverage from 1/10K to 1 while keeping all other parameters constant. What this shows is that the ALC varies substantially when the coverage values are not similar.
     '''
-    alc = anonymity_loss_coefficient.AnonymityLossCoefficient()
+    alc = AnonymityLossCoefficient()
     cov_values = np.logspace(np.log10(0.0001), np.log10(1), 5000)
     p_base = 0.5
     c_attack = 0.01
@@ -268,7 +250,7 @@ def do_alc_test(alc, p_base, c_base, increase, c_attack):
     print(f'ALC: {round(alc.alc(p_base=p_base, c_base=c_base, p_attack=p_attack, c_attack=c_attack),3)}')
 
 def make_alc_plots(cov_adjust_strength=3.0, pairs='v3'):
-    alc = anonymity_loss_coefficient.AnonymityLossCoefficient()
+    alc = AnonymityLossCoefficient()
     alc.set_param('cov_adjust_strength', cov_adjust_strength)
     if pairs == 'v1':
         Catk_Cbase_pairs = [(1, 1), (0.01, 0.01), (0.7, 1.0), (0.01, 0.05)]
@@ -318,7 +300,7 @@ def make_alc_plots(cov_adjust_strength=3.0, pairs='v3'):
     plt.savefig(f'alc_plots/alc_plot_{cov_adjust_strength}_{pairs}.png')
     plt.savefig(f'alc_plots/alc_plot_{cov_adjust_strength}_{pairs}.pdf')
 
-alc = anonymity_loss_coefficient.AnonymityLossCoefficient()
+alc = AnonymityLossCoefficient()
 do_alc_test(alc, p_base=0.5, c_base=1.0, increase=0.2, c_attack=1.0)
 do_alc_test(alc, p_base=0.2, c_base=1.0, increase=0.8, c_attack=1.0)
 do_alc_test(alc, p_base=0.999, c_base=1.0, increase=0.9, c_attack=1.0)
@@ -341,6 +323,5 @@ plot_prec_cov_for_equal_fscore('prec_cov_for_equal_fscore')
 plot_fscore_prec_for_equal_cov('fscore_prec_for_equal_cov')
 plot_identical_cov('identical_cov')
 plot_identical_cov('identical_cov_limit', limit=0.5)
-#plot_abs_weights('abs_weights')
 plot_cov_adjust('cov_adjust')
 plot_base_adjusted_pcc('base_adjusted_pcc')

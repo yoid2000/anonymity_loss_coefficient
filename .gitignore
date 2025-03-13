@@ -173,4 +173,5 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+tests/alc_plots/
 alc_plots/

@@ -1,5 +1,18 @@
 import numpy as np
 
+class BaselinePredictor:
+    '''
+    '''
+    def __init__(self, df_original, df_control):
+        '''
+        df_original is the original raw data
+        df_control is also the original raw data, but randomly selected from the
+        same initial dataframe as df_original.
+        '''
+        self.df_orig = df_original
+        self.df_ctrl = df_control
+
+
 class AnonymityLossCoefficient:
     '''
     AnonymityLossCoefficient is used to generate an anonymity loss coefficient (ALC).
