@@ -4,6 +4,7 @@ import os
 from typing import Optional, Dict, List, Union, Any, Tuple
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from scipy.stats import norm
 
 
 class DataFiles:
@@ -129,6 +130,44 @@ class BaselinePredictor:
             prediction_proba = None
         return prediction, prediction_proba
 
+class ConfidenceInterval:
+    def __init__(self) -> None:
+        self.predictions = []
+
+    def reset(self) -> None:
+        self.predictions = []
+
+    def add_prediction(self, prediction: bool) -> None:
+        self.predictions.append(prediction)
+
+    def compute_precision_interval(self, measure: str = "wilson_score_interval",
+                                   confidence: float = 0.95) -> Tuple[float, float, float, int]:
+        if measure not in self.valid_measures():
+            raise ValueError(f"Error: Invalid measure {measure}. Use one of {self.valid_measures()}")
+        if confidence < 0 or confidence > 1:
+            raise ValueError(f"Error: Invalid condifence {confidence}. Must be between 0 and 1")
+        if measure == "wilson_score_interval":
+            n = len(self.predictions)
+            if n == 0:
+                return 0.0, 0.0, 0.0, 0
+            precision = np.mean(self.predictions)
+            return self.compute_wilson_score_interval(n, precision, confidence)
+
+    def valid_measures(self) -> List[str]:
+        return ["wilson_score_interval"]
+
+    def compute_wilson_score_interval(self, n: int, precision: float, confidence_level: float = 0.95) -> Tuple[float, float, float, int]:
+
+        z = norm.ppf(1 - (1 - confidence_level) / 2)
+        denominator = 1 + z**2 / n
+        center_adjusted_probability = precision + z**2 / (2 * n)
+        adjusted_standard_deviation = np.sqrt((precision * (1 - precision) + z**2 / (4 * n)) / n)
+        lower_bound = (center_adjusted_probability - z * adjusted_standard_deviation) / denominator
+        upper_bound = (center_adjusted_probability + z * adjusted_standard_deviation) / denominator
+
+        return precision, lower_bound, upper_bound, n
+
+
 class PredictionResults:
     def __init__(self, results_path: str = None) -> None:
         self.results_path = results_path
@@ -137,6 +176,12 @@ class PredictionResults:
             print(self.results_path)
             os.makedirs(self.results_path, exist_ok=True)
         self.results = []
+        self.ci = {'base': {'ci': ConfidenceInterval(),
+                            'target': '',
+                            'known_key': ''},
+                   'attack': {'ci': ConfidenceInterval(),
+                              'target': '',
+                              'known_key': ''}}
 
     def _make_columns_key(self, known_columns: List[str]) -> str:
         sorted_columns = sorted(known_columns)
@@ -227,6 +272,20 @@ class PredictionResults:
                    ) -> None:
         self.add_result('attack', known_columns, target_col, predicted_value, true_value, prediction_proba, fraction_agree)
 
+    def check_for_ci_reset(self, ci: Dict[str, Any],
+                             known_columns_key: str,
+                             target_col: str) -> None:
+        if ci['target'] != target_col or ci['known_key'] != known_columns_key:
+            ci['target'] = target_col
+            ci['known_key'] = known_columns_key
+            ci['ci'].reset()
+    
+    def get_ci(self, ci_type: str, measure: str = "wilson_score_interval",
+               confidence: float = 0.95) -> Tuple[float, float, float, int]:
+        if ci_type not in ['base', 'attack']:
+            raise ValueError(f"Error: Invalid ci_type {ci_type}. Must be 'base' or 'attack'")
+        return self.ci[ci_type]['ci'].compute_precision_interval(measure, confidence)
+
     def add_result(self,
                    predict_type: str,
                    known_columns: List[str],
@@ -237,18 +296,25 @@ class PredictionResults:
                    fraction_agree: float = None,
                    ) -> None:
         known_columns_key = self._make_columns_key(known_columns)
+        self.check_for_ci_reset(self.ci[predict_type], known_columns_key, target_col)
         # Check if predicted_value is a numpy type
         if isinstance(predicted_value, np.generic):
             predicted_value = predicted_value.item()
+        if predicted_value == true_value:
+            prediction = True
+        else:
+            prediction = False
         self.results.append({
             'predict_type': predict_type,
             'known_columns': known_columns_key,
             'target_col': target_col,
             'predicted_value': predicted_value,
             'true_value': true_value,
+            'prediction': prediction,
             'prediction_proba': prediction_proba,
             'fraction_agree': fraction_agree,
         })
+        self.ci[predict_type]['ci'].add_prediction(prediction)
 
     def save_to_csv(self, df: pd.DataFrame, file_name: str) -> None:
         save_path = os.path.join(self.results_path, file_name)
