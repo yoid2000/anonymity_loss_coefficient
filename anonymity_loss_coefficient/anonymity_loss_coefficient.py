@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import os
+import json
 from typing import Optional, Dict, List, Union, Any, Tuple
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
@@ -169,19 +170,25 @@ class ConfidenceInterval:
 
 
 class PredictionResults:
-    def __init__(self, results_path: str = None) -> None:
+    def __init__(self, results_path: str = None,
+                       strong_thresh: float = 0.5,
+                       risk_thresh: float = 0.7) -> None:
+        self.strong_thresh = strong_thresh
+        self.risk_thresh = risk_thresh
         self.results_path = results_path
         self.summary_path_csv = None
         if self.results_path is not None:
             print(self.results_path)
             os.makedirs(self.results_path, exist_ok=True)
+        self.all_known_columns = []
+        self.all_target_columns = []
         self.results = []
         self.ci = {'base': {'ci': ConfidenceInterval(),
                             'target': '',
-                            'known_key': ''},
+                            'known_columns': []},
                    'attack': {'ci': ConfidenceInterval(),
                               'target': '',
-                              'known_key': ''}}
+                              'known_columns': []}}
 
     def _make_columns_key(self, known_columns: List[str]) -> str:
         sorted_columns = sorted(known_columns)
@@ -189,27 +196,106 @@ class PredictionResults:
         known_columns_key = known_columns_key.replace(' ', '')
         return known_columns_key
 
-    def get_results_dict(self) -> List[Dict[str, Any]]:
+    def _get_results_dict(self) -> List[Dict[str, Any]]:
         return self.results
     
-    def get_results_df(self) -> pd.DataFrame:
+    def _get_results_df(self) -> pd.DataFrame:
         return pd.DataFrame(self.results)
 
     def summarize_results(self) -> None:
         if self.results_path is None:
             raise ValueError("PredictionResults called without a results_path")
-        df = self.get_results_df()
+        df = self._get_results_df()
         self.save_to_csv(df, 'summary_raw.csv')
         df_secret_known = self.alc_per_secret_and_known(df)
         self.save_to_csv(df_secret_known, 'summary_secret_known.csv')
         df_secret = self.alc_per_secret(df)
         self.save_to_csv(df_secret, 'summary_secret.csv')
+        text_summary = self.make_text_summary(df_secret_known)
+        self.save_to_text(text_summary, 'summary.txt')
+    
+    def make_text_summary(self, df: pd.DataFrame) -> str:
+        # sort by alc descending
+        df = df.sort_values(by='alc', ascending=False)
+        total_analyzed_combinations = len(df)
+        total_no_anonymity_loss = len(df[df['alc'] <= 0.0])
+        total_strong_anonymity = len(df[(df['alc'] > 0.0) & (df['alc'] <= self.strong_thresh)])
+        total_at_risk = len(df[(df['alc'] > self.strong_thresh) & (df['alc'] <= self.risk_thresh)])
+        total_poor_anonymity = len(df[df['alc'] > self.risk_thresh])
+        total_no_anonymity = len(df[df['alc'] > 0.99])
+        if total_strong_anonymity + total_at_risk + total_poor_anonymity == 0:
+            anonymity_level = "EXCESSIVELY STRONG"
+            note  = "Consider reducing the strength of the anonymization so as to improve data quality."
+        elif total_poor_anonymity + total_at_risk == 0:
+            anonymity_level = "VERY STRONG"
+            if total_strong_anonymity/(total_strong_anonymity+total_no_anonymity_loss) < 0.2:
+                note  = "May consider reducing the strength of the anonymization so as to improve data quality."
+            else:
+                note  = "If data quality is poor, may consider reducing the strength of the anonymization so as to improve data quality."
+        elif total_poor_anonymity == 0:
+            if total_at_risk/(total_no_anonymity_loss+total_strong_anonymity+total_at_risk) < 0.05:
+                anonymity_level = "MINOR AT RISK"
+                note = f"{total_at_risk} attacks ({round(100*(total_at_risk/total_analyzed_combinations),1)}%) may be at risk. Examine attacks to assess risk."
+            else:
+                anonymity_level = "MAJOR AT RISK"
+                note = f"{total_at_risk} attacks ({round(100*(total_at_risk/total_analyzed_combinations),1)}%) may be at risk. Consider strengthening anonymity."
+        else:
+            if total_poor_anonymity/total_analyzed_combinations < 0.05:
+                anonymity_level = "POOR"
+                note = f"{total_poor_anonymity} attacks ({round(100*(total_poor_anonymity/total_analyzed_combinations),1)}%) have poor or no anonymity. Probably anonymity needs to be strengthened."
+            else:
+                anonymity_level = "VERY POOR"
+                note = f"{total_poor_anonymity} attacks ({round(100*(total_poor_anonymity/total_analyzed_combinations),1)}%) have poor or no anonymity. Strengthen anonymity."
+        summary = ""
+        summary += "Anonymity Loss Coefficient Summary\n\n"
+        summary += f"Anonymity Level: {anonymity_level}\n"
+        summary += f"    {note}\n\n"
+        summary += "Columns used as targeted columns:\n"
+        for column in self.all_target_columns:
+            summary += f"  {column}\n"
+        summary += "\n"
+        summary += "Columns used as known columns:\n"
+        for column in self.all_known_columns:
+            summary += f"  {column}\n"
+        summary += "\n"
+        width = len("No anonymity loss")
+        summary += f"Analyzed known column / target column combinations: {total_analyzed_combinations}\n"
+        string = "No anonymity loss"
+        summary += f"{string:>{width}}: {total_no_anonymity_loss:>5} ({round(100*(total_no_anonymity_loss/total_analyzed_combinations),1)}%)\n"
+        string = "Strong anonymity"
+        summary += f"{string:>{width}}: {total_strong_anonymity:>5} ({round(100*(total_strong_anonymity/total_analyzed_combinations),1)}%)\n"
+        string = "At risk"
+        summary += f"{string:>{width}}: {total_at_risk:>5} ({round(100*(total_at_risk/total_analyzed_combinations),1)}%)\n"
+        string = "Poor anonymity"
+        summary += f"{string:>{width}}: {total_poor_anonymity:>5} ({round(100*(total_poor_anonymity/total_analyzed_combinations),1)}%)\n"
+        string = "No anonymity"
+        summary += f"{string:>{width}}: {total_no_anonymity:>5} ({round(100*(total_no_anonymity/total_analyzed_combinations),1)}%)\n"
+        summary += "\n"
+        if total_no_anonymity > 0:
+            summary += "Examples of complete anonymity loss:\n"
+            filtered_df = df[df['alc'] > 0.99]
+            selected_columns_df = filtered_df[['alc', 'base_p', 'attack_p', 'target_column', 'known_columns']]
+            result_df = selected_columns_df.head(5)
+            summary += result_df.to_string(index=False)
+        elif total_poor_anonymity > 0:
+            summary += "Examples of poor anonymity loss:\n"
+            filtered_df = df[df['alc'] > self.strong_thresh]
+            selected_columns_df = filtered_df[['alc', 'base_p', 'attack_p', 'target_column', 'known_columns']]
+            result_df = selected_columns_df.head(5)
+            summary += result_df.to_string(index=False)
+        elif total_at_risk > 0:
+            summary += "Examples of at risk anonymity loss:\n"
+            filtered_df = df[df['alc'] > self.risk_thresh]
+            selected_columns_df = filtered_df[['alc', 'base_p', 'attack_p', 'target_column', 'known_columns']]
+            result_df = selected_columns_df.head(5)
+            summary += result_df.to_string(index=False)
+        return summary
 
     def alc_per_secret(self, df_in: pd.DataFrame) -> pd.DataFrame:
         alc = AnonymityLossCoefficient()
         df_in['prediction'] = df_in['predicted_value'] == df_in['true_value']
         rows = []
-        grouped = df_in.groupby('target_col', as_index=False)
+        grouped = df_in.groupby('target_column', as_index=False)
         for target_col, group in grouped:
             base_group = group[group['predict_type'] == 'base']
             syn_group = group[group['predict_type'] == 'attack']
@@ -219,7 +305,7 @@ class PredictionResults:
             base_count = len(base_group)
             attack_count = len(syn_group)
             rows.append({
-                'target_col': target_col,
+                'target_column': target_col,
                 'base_p': base_p,
                 'attack_p': syn_p,
                 'alc': alc_score,
@@ -232,7 +318,8 @@ class PredictionResults:
         alc = AnonymityLossCoefficient()
         df_in['prediction'] = df_in['predicted_value'] == df_in['true_value']
         rows = []
-        grouped = df_in.groupby(['known_columns', 'target_col'])
+        # known_columns is a string here
+        grouped = df_in.groupby(['known_columns', 'target_column'])
         for (known_columns, target_col), group in grouped:
             base_group = group[group['predict_type'] == 'base']
             syn_group = group[group['predict_type'] == 'attack']
@@ -241,9 +328,12 @@ class PredictionResults:
             alc_score = alc.alc(p_base=base_p, c_base=1.0, p_attack=syn_p, c_attack=1.0)
             base_count = len(base_group)
             attack_count = len(syn_group)
+            # get the value of num_known_columns from the first row
+            num_known_columns = group['num_known_columns'].iloc[0]
             rows.append({
-                'target_col': target_col,
+                'target_column': target_col,
                 'known_columns': known_columns,
+                'num_known_columns': num_known_columns,
                 'base_p': base_p,
                 'attack_p': syn_p,
                 'alc': alc_score,
@@ -273,11 +363,11 @@ class PredictionResults:
         self.add_result('attack', known_columns, target_col, predicted_value, true_value, prediction_proba, fraction_agree)
 
     def check_for_ci_reset(self, ci: Dict[str, Any],
-                             known_columns_key: str,
+                             known_columns: List[str],
                              target_col: str) -> None:
-        if ci['target'] != target_col or ci['known_key'] != known_columns_key:
+        if ci['target'] != target_col or ci['known_columns'] != known_columns:
             ci['target'] = target_col
-            ci['known_key'] = known_columns_key
+            ci['known_columns'] = known_columns
             ci['ci'].reset()
     
     def get_ci(self, ci_type: str, measure: str = "wilson_score_interval",
@@ -295,8 +385,14 @@ class PredictionResults:
                    prediction_proba: float = None,
                    fraction_agree: float = None,
                    ) -> None:
-        known_columns_key = self._make_columns_key(known_columns)
-        self.check_for_ci_reset(self.ci[predict_type], known_columns_key, target_col)
+        if target_col not in self.all_target_columns:
+            self.all_target_columns.append(target_col)
+        for col in known_columns:
+            if col not in self.all_known_columns:
+                self.all_known_columns.append(col)
+        # sort known_columns
+        known_columns = sorted(known_columns)
+        self.check_for_ci_reset(self.ci[predict_type], known_columns, target_col)
         # Check if predicted_value is a numpy type
         if isinstance(predicted_value, np.generic):
             predicted_value = predicted_value.item()
@@ -306,8 +402,9 @@ class PredictionResults:
             prediction = False
         self.results.append({
             'predict_type': predict_type,
-            'known_columns': known_columns_key,
-            'target_col': target_col,
+            'known_columns': json.dumps(known_columns),
+            'num_known_columns': len(known_columns),
+            'target_column': target_col,
             'predicted_value': predicted_value,
             'true_value': true_value,
             'prediction': prediction,
@@ -315,6 +412,16 @@ class PredictionResults:
             'fraction_agree': fraction_agree,
         })
         self.ci[predict_type]['ci'].add_prediction(prediction)
+
+    def save_to_text(self, text_summary: str, file_name: str) -> None:
+        save_path = os.path.join(self.results_path, file_name)
+        try:
+            with open(save_path, 'w') as f:
+                f.write(text_summary)
+        except PermissionError:
+            print(f"Error: The file at {save_path} is currently open in another application. You might want to make a copy of the summary file in order to view it while the attack is still executing.")
+        except Exception as e:
+            print(f"Error: Failed to write {save_path}: {e}")
 
     def save_to_csv(self, df: pd.DataFrame, file_name: str) -> None:
         save_path = os.path.join(self.results_path, file_name)
