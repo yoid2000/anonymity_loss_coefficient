@@ -5,22 +5,25 @@ import matplotlib.pyplot as plt
 
 def plot_alc_prec_best(df: pd.DataFrame,
                   strong_thresh: float, risk_thresh: float,
+                  attack_name: str,
                   file_path: str) -> None:
     if len(df) < 10:
         return
     idx = df.groupby(['target_column', 'known_columns'])['alc'].idxmax()
     df_best = df.loc[idx].reset_index(drop=True)
-    _plot_alc_prec(df_best, strong_thresh, risk_thresh, file_path)
+    _plot_alc_prec(df_best, strong_thresh, risk_thresh, attack_name, file_path)
 
 def plot_alc_prec(df: pd.DataFrame,
                   strong_thresh: float, risk_thresh: float,
+                  attack_name: str,
                   file_path: str) -> None:
     if len(df) < 10:
         return
-    _plot_alc_prec(df, strong_thresh, risk_thresh, file_path)
+    _plot_alc_prec(df, strong_thresh, risk_thresh, attack_name, file_path)
 
 def _plot_alc_prec(df: pd.DataFrame,
                   strong_thresh: float, risk_thresh: float,
+                  attack_name: str,
                   file_path: str) -> None:
     if len(df) < 10:
         return
@@ -41,6 +44,7 @@ def _plot_alc_prec(df: pd.DataFrame,
     #plt.text(x=0, y=risk_thresh, s=f'risk_thresh={risk_thresh}', color='blue', va='bottom')
     plt.ylabel('ALC')
     plt.xlabel('Attack Precision')
+    plt.title(attack_name)
     plt.tight_layout()
 
     # Add colorbar
@@ -53,23 +57,26 @@ def _plot_alc_prec(df: pd.DataFrame,
     plt.close()
 
 def plot_alc_best(df: pd.DataFrame,
-             strong_thresh: float, risk_thresh: float,
-             file_path: str) -> None:
+                  strong_thresh: float, risk_thresh: float,
+                  attack_name: str,
+                  file_path: str) -> None:
     if len(df) < 10:
         return
     idx = df.groupby(['target_column', 'known_columns'])['alc'].idxmax()
     df_best = df.loc[idx].reset_index(drop=True)
-    _plot_alc(df_best, strong_thresh, risk_thresh, file_path)
+    _plot_alc(df_best, strong_thresh, risk_thresh, attack_name, file_path)
 
 def plot_alc(df: pd.DataFrame,
              strong_thresh: float, risk_thresh: float,
+             attack_name: str,
              file_path: str) -> None:
     if len(df) < 10:
         return
-    _plot_alc(df, strong_thresh, risk_thresh, file_path)
+    _plot_alc(df, strong_thresh, risk_thresh, attack_name, file_path)
 
 def _plot_alc_line(df: pd.DataFrame,
              strong_thresh: float, risk_thresh: float,
+             attack_name: str,
              file_path: str) -> None:
     df = df.copy()
     df['alc'] = df['alc'].apply(lambda x: max(x, -3.0))
@@ -80,6 +87,7 @@ def _plot_alc_line(df: pd.DataFrame,
     lower_ylim = min(-0.05, low_alc)
     plt.ylim(lower_ylim, 1.05)
     plt.xlabel('')
+    plt.title(attack_name)
     plt.xticks([])
     plt.axhline(y=0.0, color='black', linestyle='dotted')
     plt.axhline(y=strong_thresh, color='green', linestyle='dotted')
@@ -94,6 +102,7 @@ def _plot_alc_line(df: pd.DataFrame,
 
 def _plot_alc(df: pd.DataFrame,
              strong_thresh: float, risk_thresh: float,
+             attack_name,
              file_path: str) -> None:
     df = df.copy()
     df['alc'] = df['alc'].apply(lambda x: max(x, -3.0))
@@ -114,6 +123,7 @@ def _plot_alc(df: pd.DataFrame,
     #plt.text(x=strong_thresh, y=0, s=f'poor={strong_thresh}', color='blue', va='bottom')
     
     plt.xlabel('ALC')
+    plt.title(attack_name)
     plt.ylabel('Target Column')
     plt.tight_layout()
     plt.savefig(file_path)
@@ -130,7 +140,8 @@ def make_text_summary(df_target_known: pd.DataFrame,
                       strong_thresh: float,
                       risk_thresh: float,
                       all_target_columns,
-                      all_known_columns) -> str:
+                      all_known_columns,
+                      attack_name) -> str:
     df = df_target_known.sort_values(by='alc', ascending=False)
     idx = df.groupby(['target_column', 'known_columns'])['alc'].idxmax()
     df = df.loc[idx].reset_index(drop=True)
@@ -165,7 +176,9 @@ def make_text_summary(df_target_known: pd.DataFrame,
             anonymity_level = "VERY POOR"
             note = f"{total_poor_anonymity} attacks ({round(100*(total_poor_anonymity/total_analyzed_combinations),1)}%) have poor or no anonymity. Strengthen anonymity."
     summary = ""
-    summary += "Anonymity Loss Coefficient Summary\n\n"
+    summary += "Anonymity Loss Coefficient Summary\n"
+    if len(attack_name) > 0:
+        summary += f"    {attack_name}\n"
     summary += f"Anonymity Level: {anonymity_level}\n"
     summary += f"    {note}\n\n"
     summary += f"{len(all_target_columns)} columns used as targeted columns:\n"

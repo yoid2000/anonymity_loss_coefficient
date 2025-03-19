@@ -173,10 +173,12 @@ class ConfidenceInterval:
 class PredictionResults:
     def __init__(self, results_path: str = None,
                        strong_thresh: float = 0.5,
-                       risk_thresh: float = 0.7) -> None:
+                       risk_thresh: float = 0.7,
+                       attack_name: str = '') -> None:
         self.strong_thresh = strong_thresh
         self.risk_thresh = risk_thresh
         self.results_path = results_path
+        self.attack_name = attack_name
         self.summary_path_csv = None
         if self.results_path is not None:
             print(self.results_path)
@@ -213,24 +215,29 @@ class PredictionResults:
                                                 self.strong_thresh,
                                                 self.risk_thresh,
                                                 self.all_target_columns,
-                                                self.all_known_columns)
+                                                self.all_known_columns,
+                                                self.attack_name)
             self.save_to_text(text_summary, 'summary.txt')
         if with_plot:
             plot_alc(df_secret_known,
                         self.strong_thresh,
                         self.risk_thresh,
+                        self.attack_name,
                         os.path.join(self.results_path, 'alc_plot.png'))
             plot_alc_prec(df_secret_known,
                         self.strong_thresh,
                         self.risk_thresh,
+                        self.attack_name,
                         os.path.join(self.results_path, 'alc_prec_plot.png'))
             plot_alc_best(df_secret_known,
                         self.strong_thresh,
                         self.risk_thresh,
+                        self.attack_name,
                         os.path.join(self.results_path, 'alc_plot_best.png'))
             plot_alc_prec_best(df_secret_known,
                         self.strong_thresh,
                         self.risk_thresh,
+                        self.attack_name,
                         os.path.join(self.results_path, 'alc_prec_plot_best.png'))
 
     def print_example_attack(self, df: pd.DataFrame) -> None:
@@ -240,7 +247,9 @@ class PredictionResults:
             string +=f"    Secret: {row['target_column']}, Known: {row['known_columns']}\n"
         return string
 
-    def get_alc_scores(self, base_group: pd.DataFrame, attack_group: pd.DataFrame) -> List[Dict]:
+    def get_alc_scores(self, base_group: pd.DataFrame,
+                             attack_group: pd.DataFrame,
+                             with_conf: bool = False) -> List[Dict]:
         score_info = []
         alc = AnonymityLossCoefficient()
         # sort base_group by base_confidence descending
