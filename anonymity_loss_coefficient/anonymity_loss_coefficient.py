@@ -2,12 +2,11 @@ import numpy as np
 import pandas as pd
 import os
 import json
-import seaborn as sns
-import matplotlib.pyplot as plt
 from typing import Optional, Dict, List, Union, Any, Tuple
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from scipy.stats import norm
+from .reporting import *
 
 
 class DataFiles:
@@ -192,19 +191,15 @@ class PredictionResults:
                               'target': '',
                               'known_columns': []}}
 
-    def _make_columns_key(self, known_columns: List[str]) -> str:
-        sorted_columns = sorted(known_columns)
-        known_columns_key = '__'.join(sorted_columns)
-        known_columns_key = known_columns_key.replace(' ', '')
-        return known_columns_key
-
     def _get_results_dict(self) -> List[Dict[str, Any]]:
         return self.results
     
     def _get_results_df(self) -> pd.DataFrame:
         return pd.DataFrame(self.results)
 
-    def summarize_results(self) -> None:
+    def summarize_results(self,
+                          with_text: bool = True,
+                          with_plot: bool = True) -> None:
         if self.results_path is None:
             raise ValueError("PredictionResults called without a results_path")
         df = self._get_results_df()
@@ -213,55 +208,22 @@ class PredictionResults:
         self.save_to_csv(df_secret_known, 'summary_secret_known.csv')
         df_secret = self.alc_per_secret(df)
         self.save_to_csv(df_secret, 'summary_secret.csv')
-        text_summary = self.make_text_summary(df_secret_known)
-        self.save_to_text(text_summary, 'summary.txt')
-        self.plot_alc(df_secret_known, os.path.join(self.results_path, 'alc_plot.png'))
-        self.plot_alc_prec(df_secret_known, os.path.join(self.results_path, 'alc_prec_plot.png'))
-
-    def plot_alc_prec(self, df: pd.DataFrame, file_path: str) -> None:
-        if len(df) < 10:
-            return
-        df = df.copy()
-        # set any 'alc' values less that -3.0 to -3.0
-        df['alc'] = df['alc'].apply(lambda x: max(x, -3.0))
-        plt.figure(figsize=(6, 4))
-        sns.scatterplot(data=df, x='attack_prec', y='alc')
-        low_alc = df['alc'].min()
-        lower_ylim = min(-0.05, low_alc)
-        plt.ylim(lower_ylim, 1.05)
-        plt.xlim(-0.05, 1.05)
-        plt.axhline(y=0.0, color='black', linestyle='dotted')
-        plt.axhline(y=self.strong_thresh, color='green', linestyle='dotted')
-        plt.axhline(y=self.risk_thresh, color='red', linestyle='dotted')
-        #plt.text(x=0, y=self.strong_thresh, s=f'strong_thresh={self.strong_thresh}', color='red', va='bottom')
-        #plt.text(x=0, y=self.risk_thresh, s=f'risk_thresh={self.risk_thresh}', color='blue', va='bottom')
-        plt.ylabel('ALC')
-        plt.xlabel('Attack Precision')
-        plt.tight_layout()
-        plt.savefig(file_path)
-
-    def plot_alc(self, df: pd.DataFrame, file_path: str) -> None:
-        if len(df) < 10:
-            return
-        df = df.copy()
-        df['alc'] = df['alc'].apply(lambda x: max(x, -3.0))
-        df_sorted = df.sort_values(by='alc', ascending=True).reset_index(drop=True)
-        plt.figure(figsize=(6, 4))
-        sns.lineplot(data=df_sorted, x=df_sorted.index, y='alc')
-        low_alc = df_sorted['alc'].min()
-        lower_ylim = min(-0.05, low_alc)
-        plt.ylim(lower_ylim, 1.05)
-        plt.xlabel('')
-        plt.xticks([])
-        plt.axhline(y=0.0, color='black', linestyle='dotted')
-        plt.axhline(y=self.strong_thresh, color='green', linestyle='dotted')
-        plt.axhline(y=self.risk_thresh, color='red', linestyle='dotted')
-        # Add labels for the horizontal lines
-        #plt.text(x=0, y=self.risk_thresh, s=f'risk={self.risk_thresh}', color='red', va='bottom')
-        #plt.text(x=0, y=self.strong_thresh, s=f'poor={self.strong_thresh}', color='blue', va='bottom')
-        plt.ylabel('ALC')
-        plt.tight_layout()
-        plt.savefig(file_path)
+        if with_text:
+            text_summary = make_text_summary(df_secret_known,
+                                                self.strong_thresh,
+                                                self.risk_thresh,
+                                                self.all_target_columns,
+                                                self.all_known_columns)
+            self.save_to_text(text_summary, 'summary.txt')
+        if with_plot:
+            plot_alc(df_secret_known,
+                        self.strong_thresh,
+                        self.risk_thresh,
+                        os.path.join(self.results_path, 'alc_plot.png'))
+            plot_alc_prec(df_secret_known,
+                        self.strong_thresh,
+                        self.risk_thresh,
+                        os.path.join(self.results_path, 'alc_prec_plot.png'))
 
     def print_example_attack(self, df: pd.DataFrame) -> None:
         string = ''
@@ -269,77 +231,6 @@ class PredictionResults:
             string += f"ALC: {round(row['alc'],2)}, base (prec: {round(row['base_prec'],2)}, recall: {round(row['base_recall'],2)}), attack (prec: {round(row['attack_prec'],2)}, recall: {round(row['attack_recall'],2)})\n"
             string +=f"    Secret: {row['target_column']}, Known: {row['known_columns']}\n"
         return string
-
-    def make_text_summary(self, df: pd.DataFrame) -> str:
-        # sort by alc descending
-        df = df.sort_values(by='alc', ascending=False)
-        total_analyzed_combinations = len(df)
-        total_no_anonymity_loss = len(df[df['alc'] <= 0.0])
-        total_strong_anonymity = len(df[(df['alc'] > 0.0) & (df['alc'] <= self.strong_thresh)])
-        total_at_risk = len(df[(df['alc'] > self.strong_thresh) & (df['alc'] <= self.risk_thresh)])
-        total_poor_anonymity = len(df[df['alc'] > self.risk_thresh])
-        total_no_anonymity = len(df[df['alc'] > 0.99])
-        if total_strong_anonymity + total_at_risk + total_poor_anonymity == 0:
-            anonymity_level = "VERY STRONG"
-            note  = "Consider reducing the strength of the anonymization so as to improve data quality."
-        elif total_poor_anonymity + total_at_risk == 0:
-            anonymity_level = "STRONG"
-            if total_strong_anonymity/(total_strong_anonymity+total_no_anonymity_loss) < 0.2:
-                note  = "May consider reducing the strength of the anonymization so as to improve data quality."
-            else:
-                note  = "If data quality is poor, may consider reducing the strength of the anonymization so as to improve data quality."
-        elif total_poor_anonymity == 0:
-            if total_at_risk/(total_no_anonymity_loss+total_strong_anonymity+total_at_risk) < 0.05 or total_at_risk < 5:
-                anonymity_level = "MINOR AT RISK"
-                note = f"{total_at_risk} attacks ({round(100*(total_at_risk/total_analyzed_combinations),1)}%) may be at risk. Examine attacks to assess risk."
-            else:
-                anonymity_level = "MAJOR AT RISK"
-                note = f"{total_at_risk} attacks ({round(100*(total_at_risk/total_analyzed_combinations),1)}%) may be at risk. Consider strengthening anonymity."
-        else:
-            if total_poor_anonymity/total_analyzed_combinations < 0.05 or total_poor_anonymity < 5:
-                anonymity_level = "POOR"
-                note = f"{total_poor_anonymity} attacks ({round(100*(total_poor_anonymity/total_analyzed_combinations),1)}%) have poor or no anonymity. Probably anonymity needs to be strengthened."
-            else:
-                anonymity_level = "VERY POOR"
-                note = f"{total_poor_anonymity} attacks ({round(100*(total_poor_anonymity/total_analyzed_combinations),1)}%) have poor or no anonymity. Strengthen anonymity."
-        summary = ""
-        summary += "Anonymity Loss Coefficient Summary\n\n"
-        summary += f"Anonymity Level: {anonymity_level}\n"
-        summary += f"    {note}\n\n"
-        summary += f"{len(self.all_target_columns)} columns used as targeted columns:\n"
-        for column in self.all_target_columns:
-            summary += f"  {column}\n"
-        summary += "\n"
-        summary += f"{len(self.all_known_columns)} columns used as known columns:\n"
-        for column in self.all_known_columns:
-            summary += f"  {column}\n"
-        summary += "\n"
-        width = len("Perfect anonymity")
-        summary += f"Analyzed known column / target column combinations: {total_analyzed_combinations}\n"
-        string = "Perfect anonymity"
-        summary += f"{string:>{width}}: {total_no_anonymity_loss:>5} ({round(100*(total_no_anonymity_loss/total_analyzed_combinations),1)}%)\n"
-        string = "Strong anonymity"
-        summary += f"{string:>{width}}: {total_strong_anonymity:>5} ({round(100*(total_strong_anonymity/total_analyzed_combinations),1)}%)\n"
-        string = "At risk"
-        summary += f"{string:>{width}}: {total_at_risk:>5} ({round(100*(total_at_risk/total_analyzed_combinations),1)}%)\n"
-        string = "Poor anonymity"
-        summary += f"{string:>{width}}: {total_poor_anonymity:>5} ({round(100*(total_poor_anonymity/total_analyzed_combinations),1)}%)\n"
-        string = "No anonymity"
-        summary += f"{string:>{width}}: {total_no_anonymity:>5} ({round(100*(total_no_anonymity/total_analyzed_combinations),1)}%)\n"
-        summary += "\n"
-        if total_no_anonymity > 0:
-            summary += "Examples of complete anonymity loss:\n"
-            filtered_df = df[df['alc'] > 0.99]
-            summary += self.print_example_attack(filtered_df.head(5))
-        elif total_poor_anonymity > 0:
-            summary += "Examples of poor anonymity loss:\n"
-            filtered_df = df[df['alc'] > self.risk_thresh]
-            summary += self.print_example_attack(filtered_df.head(5))
-        elif total_at_risk > 0:
-            summary += "Examples of at risk anonymity loss:\n"
-            filtered_df = df[df['alc'] > self.strong_thresh]
-            summary += self.print_example_attack(filtered_df.head(5))
-        return summary
 
     def alc_per_secret(self, df_in: pd.DataFrame) -> pd.DataFrame:
         alc = AnonymityLossCoefficient()
