@@ -224,6 +224,14 @@ class PredictionResults:
                         self.strong_thresh,
                         self.risk_thresh,
                         os.path.join(self.results_path, 'alc_prec_plot.png'))
+            plot_alc_best(df_secret_known,
+                        self.strong_thresh,
+                        self.risk_thresh,
+                        os.path.join(self.results_path, 'alc_plot_best.png'))
+            plot_alc_prec_best(df_secret_known,
+                        self.strong_thresh,
+                        self.risk_thresh,
+                        os.path.join(self.results_path, 'alc_prec_plot_best.png'))
 
     def print_example_attack(self, df: pd.DataFrame) -> None:
         string = ''
@@ -232,6 +240,30 @@ class PredictionResults:
             string +=f"    Secret: {row['target_column']}, Known: {row['known_columns']}\n"
         return string
 
+    def get_alc_scores(self, base_group: pd.DataFrame, attack_group: pd.DataFrame) -> List[Dict]:
+        score_info = []
+        alc = AnonymityLossCoefficient()
+        # sort base_group by base_confidence descending
+        base_group = base_group.sort_values(by='base_confidence', ascending=False)
+        atk_confs = sorted(attack_group['attack_confidence'].unique(), reverse=True)
+        for atk_conf in atk_confs:
+            df_atk_conf = attack_group[attack_group['attack_confidence'] >= atk_conf]
+            num_predictions = len(df_atk_conf)
+            df_base_conf = base_group.head(num_predictions)
+            base_prec = df_base_conf['prediction'].mean()
+            base_recall = len(df_base_conf) / len(base_group)
+            attack_prec = df_atk_conf['prediction'].mean()
+            attack_recall = len(df_atk_conf) / len(attack_group)
+            alc_score = alc.alc(p_base=base_prec, c_base=base_recall, p_attack=attack_prec, c_attack=attack_recall)
+            score_info.append({
+                'base_prec': base_prec,
+                'base_recall': base_recall,
+                'attack_prec': attack_prec,
+                'attack_recall': attack_recall,
+                'alc': alc_score,
+            })
+        return score_info
+
     def alc_per_secret(self, df_in: pd.DataFrame) -> pd.DataFrame:
         alc = AnonymityLossCoefficient()
         df_in['prediction'] = df_in['predicted_value'] == df_in['true_value']
@@ -239,22 +271,21 @@ class PredictionResults:
         grouped = df_in.groupby('target_column', as_index=False)
         for target_col, group in grouped:
             base_group = group[group['predict_type'] == 'base']
-            syn_group = group[group['predict_type'] == 'attack']
-            base_prec = base_group['prediction'].mean()
-            syn_p = syn_group['prediction'].mean()
-            alc_score = alc.alc(p_base=base_prec, c_base=1.0, p_attack=syn_p, c_attack=1.0)
+            attack_group = group[group['predict_type'] == 'attack']
             base_count = len(base_group)
-            attack_count = len(syn_group)
-            rows.append({
-                'target_column': target_col,
-                'base_prec': base_prec,
-                'base_recall': 1.0,
-                'attack_prec': syn_p,
-                'attack_recall': 1.0,
-                'alc': alc_score,
-                'base_count': base_count,
-                'attack_count': attack_count
-            })
+            attack_count = len(attack_group)
+            score_info = self.get_alc_scores(base_group, attack_group)
+            for score in score_info:
+                rows.append({
+                    'target_column': target_col,
+                    'base_prec': score['base_prec'],
+                    'base_recall': score['base_recall'],
+                    'attack_prec': score['attack_prec'],
+                    'attack_recall': score['attack_recall'],
+                    'alc': score['alc'],
+                    'base_count': base_count,
+                    'attack_count': attack_count
+                })
         return pd.DataFrame(rows)
     
     def alc_per_secret_and_known(self, df_in: pd.DataFrame) -> pd.DataFrame:
@@ -265,26 +296,24 @@ class PredictionResults:
         grouped = df_in.groupby(['known_columns', 'target_column'])
         for (known_columns, target_col), group in grouped:
             base_group = group[group['predict_type'] == 'base']
-            syn_group = group[group['predict_type'] == 'attack']
-            base_prec = base_group['prediction'].mean()
-            syn_p = syn_group['prediction'].mean()
-            alc_score = alc.alc(p_base=base_prec, c_base=1.0, p_attack=syn_p, c_attack=1.0)
+            attack_group = group[group['predict_type'] == 'attack']
             base_count = len(base_group)
-            attack_count = len(syn_group)
-            # get the value of num_known_columns from the first row
+            attack_count = len(attack_group)
             num_known_columns = group['num_known_columns'].iloc[0]
-            rows.append({
-                'target_column': target_col,
-                'known_columns': known_columns,
-                'num_known_columns': num_known_columns,
-                'base_prec': base_prec,
-                'base_recall': 1.0,
-                'attack_prec': syn_p,
-                'attack_recall': 1.0,
-                'alc': alc_score,
-                'base_count': base_count,
-                'attack_count': attack_count
-            })
+            score_info = self.get_alc_scores(base_group, attack_group)
+            for score in score_info:
+                rows.append({
+                    'target_column': target_col,
+                    'known_columns': known_columns,
+                    'num_known_columns': num_known_columns,
+                    'base_prec': score['base_prec'],
+                    'base_recall': score['base_recall'],
+                    'attack_prec': score['attack_prec'],
+                    'attack_recall': score['attack_recall'],
+                    'alc': score['alc'],
+                    'base_count': base_count,
+                    'attack_count': attack_count
+                })
         return pd.DataFrame(rows)
 
     def add_base_result(self,

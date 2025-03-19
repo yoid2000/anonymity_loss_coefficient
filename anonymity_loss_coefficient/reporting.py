@@ -3,16 +3,32 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 
+def plot_alc_prec_best(df: pd.DataFrame,
+                  strong_thresh: float, risk_thresh: float,
+                  file_path: str) -> None:
+    if len(df) < 10:
+        return
+    idx = df.groupby(['target_column', 'known_columns'])['alc'].idxmax()
+    df_best = df.loc[idx].reset_index(drop=True)
+    _plot_alc_prec(df_best, strong_thresh, risk_thresh, file_path)
+
 def plot_alc_prec(df: pd.DataFrame,
                   strong_thresh: float, risk_thresh: float,
                   file_path: str) -> None:
     if len(df) < 10:
         return
+    _plot_alc_prec(df, strong_thresh, risk_thresh, file_path)
+
+def _plot_alc_prec(df: pd.DataFrame,
+                  strong_thresh: float, risk_thresh: float,
+                  file_path: str) -> None:
+    if len(df) < 10:
+        return
     df = df.copy()
-    # set any 'alc' values less that -3.0 to -3.0
+    # set any 'alc' values less than -3.0 to -3.0
     df['alc'] = df['alc'].apply(lambda x: max(x, -3.0))
     plt.figure(figsize=(6, 4))
-    sns.scatterplot(data=df, x='attack_prec', y='alc')
+    scatter = sns.scatterplot(data=df, x='attack_prec', y='alc', hue='attack_recall', palette='viridis', legend=False)
     low_alc = df['alc'].min()
     lower_ylim = min(-0.05, low_alc)
     plt.ylim(lower_ylim, 1.05)
@@ -20,18 +36,41 @@ def plot_alc_prec(df: pd.DataFrame,
     plt.axhline(y=0.0, color='black', linestyle='dotted')
     plt.axhline(y=strong_thresh, color='green', linestyle='dotted')
     plt.axhline(y=risk_thresh, color='red', linestyle='dotted')
+    # Add labels for the horizontal lines
     #plt.text(x=0, y=strong_thresh, s=f'strong_thresh={strong_thresh}', color='red', va='bottom')
     #plt.text(x=0, y=risk_thresh, s=f'risk_thresh={risk_thresh}', color='blue', va='bottom')
     plt.ylabel('ALC')
     plt.xlabel('Attack Precision')
     plt.tight_layout()
+
+    # Add colorbar
+    norm = plt.Normalize(df['attack_recall'].min(), df['attack_recall'].max())
+    sm = plt.cm.ScalarMappable(cmap="viridis", norm=norm)
+    sm.set_array([])
+    plt.colorbar(sm, ax=scatter, orientation='vertical', label='Attack Recall')
+
     plt.savefig(file_path)
+    plt.close()
+
+def plot_alc_best(df: pd.DataFrame,
+             strong_thresh: float, risk_thresh: float,
+             file_path: str) -> None:
+    if len(df) < 10:
+        return
+    idx = df.groupby(['target_column', 'known_columns'])['alc'].idxmax()
+    df_best = df.loc[idx].reset_index(drop=True)
+    _plot_alc(df_best, strong_thresh, risk_thresh, file_path)
 
 def plot_alc(df: pd.DataFrame,
              strong_thresh: float, risk_thresh: float,
              file_path: str) -> None:
     if len(df) < 10:
         return
+    _plot_alc(df, strong_thresh, risk_thresh, file_path)
+
+def _plot_alc_line(df: pd.DataFrame,
+             strong_thresh: float, risk_thresh: float,
+             file_path: str) -> None:
     df = df.copy()
     df['alc'] = df['alc'].apply(lambda x: max(x, -3.0))
     df_sorted = df.sort_values(by='alc', ascending=True).reset_index(drop=True)
@@ -51,6 +90,34 @@ def plot_alc(df: pd.DataFrame,
     plt.ylabel('ALC')
     plt.tight_layout()
     plt.savefig(file_path)
+    plt.close()
+
+def _plot_alc(df: pd.DataFrame,
+             strong_thresh: float, risk_thresh: float,
+             file_path: str) -> None:
+    df = df.copy()
+    df['alc'] = df['alc'].apply(lambda x: max(x, -3.0))
+    
+    plt.figure(figsize=(6, 4))
+    sns.boxplot(data=df, x='alc', y='target_column', orient='h')
+    
+    low_alc = df['alc'].min()
+    lower_ylim = min(-0.05, low_alc)
+    plt.xlim(lower_ylim, 1.05)
+    
+    plt.axvline(x=0.0, color='black', linestyle='dotted')
+    plt.axvline(x=strong_thresh, color='green', linestyle='dotted')
+    plt.axvline(x=risk_thresh, color='red', linestyle='dotted')
+    
+    # Add labels for the vertical lines
+    #plt.text(x=risk_thresh, y=0, s=f'risk={risk_thresh}', color='red', va='bottom')
+    #plt.text(x=strong_thresh, y=0, s=f'poor={strong_thresh}', color='blue', va='bottom')
+    
+    plt.xlabel('ALC')
+    plt.ylabel('Target Column')
+    plt.tight_layout()
+    plt.savefig(file_path)
+    plt.close()
 
 def print_example_attack(df: pd.DataFrame) -> None:
     string = ''
@@ -59,13 +126,15 @@ def print_example_attack(df: pd.DataFrame) -> None:
         string +=f"    Secret: {row['target_column']}, Known: {row['known_columns']}\n"
     return string
 
-def make_text_summary(df: pd.DataFrame,
+def make_text_summary(df_target_known: pd.DataFrame,
                       strong_thresh: float,
                       risk_thresh: float,
                       all_target_columns,
                       all_known_columns) -> str:
-    # sort by alc descending
-    df = df.sort_values(by='alc', ascending=False)
+    df = df_target_known.sort_values(by='alc', ascending=False)
+    idx = df.groupby(['target_column', 'known_columns'])['alc'].idxmax()
+    df = df.loc[idx].reset_index(drop=True)
+    # Here, df has the per-target/known combination with the highest ALC
     total_analyzed_combinations = len(df)
     total_no_anonymity_loss = len(df[df['alc'] <= 0.0])
     total_strong_anonymity = len(df[(df['alc'] > 0.0) & (df['alc'] <= strong_thresh)])
