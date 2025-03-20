@@ -143,16 +143,22 @@ class ConfidenceInterval:
         self.predictions.append(prediction)
 
     def compute_precision_interval(self, measure: str = "wilson_score_interval",
-                                   confidence: float = 0.95) -> Tuple[float, float, float, int]:
+                                   confidence: float = 0.95,
+                                   n: Optional[int] = None,
+                                   precision: Optional[int] = None) -> Tuple[float, float, float, int]:
+        '''
+        returns precision, lower_bound, upper_bound, n
+        '''
         if measure not in self.valid_measures():
             raise ValueError(f"Error: Invalid measure {measure}. Use one of {self.valid_measures()}")
         if confidence < 0 or confidence > 1:
             raise ValueError(f"Error: Invalid condifence {confidence}. Must be between 0 and 1")
         if measure == "wilson_score_interval":
-            n = len(self.predictions)
-            if n == 0:
-                return 0.0, 0.0, 0.0, 0
-            precision = np.mean(self.predictions)
+            if n is None:
+                n = len(self.predictions)
+                if n == 0:
+                    return 0.0, 0.0, 0.0, 0
+                precision = np.mean(self.predictions)
             return self.compute_wilson_score_interval(n, precision, confidence)
 
     def valid_measures(self) -> List[str]:
@@ -174,11 +180,15 @@ class PredictionResults:
     def __init__(self, results_path: str = None,
                        strong_thresh: float = 0.5,
                        risk_thresh: float = 0.7,
-                       attack_name: str = '') -> None:
+                       attack_name: str = '',
+                       confidence_interval_type: str = 'wilson_score_interval',
+                       confidence: float = 0.95) -> None:
         self.strong_thresh = strong_thresh
         self.risk_thresh = risk_thresh
         self.results_path = results_path
         self.attack_name = attack_name
+        self.confidence = confidence
+        self.confidence_interval_type = confidence_interval_type
         self.summary_path_csv = None
         if self.results_path is not None:
             print(self.results_path)
@@ -247,29 +257,55 @@ class PredictionResults:
             string +=f"    Secret: {row['target_column']}, Known: {row['known_columns']}\n"
         return string
 
-    def get_alc_scores(self, base_group: pd.DataFrame,
-                             attack_group: pd.DataFrame,
+    def get_alc_scores(self, df_base: pd.DataFrame,
+                             df_attack: pd.DataFrame,
                              with_conf: bool = False) -> List[Dict]:
+        '''
+        df_base and df_attack are the dataframes containing only the set of predictions
+        of interest (i.e. already grouped in some way).
+        '''
         score_info = []
         alc = AnonymityLossCoefficient()
-        # sort base_group by base_confidence descending
-        base_group = base_group.sort_values(by='base_confidence', ascending=False)
-        atk_confs = sorted(attack_group['attack_confidence'].unique(), reverse=True)
+        # sort df_base by base_confidence descending
+        df_base = df_base.sort_values(by='base_confidence', ascending=False)
+        atk_confs = sorted(df_attack['attack_confidence'].unique(), reverse=True)
         for atk_conf in atk_confs:
-            df_atk_conf = attack_group[attack_group['attack_confidence'] >= atk_conf]
+            df_atk_conf = df_attack[df_attack['attack_confidence'] >= atk_conf]
             num_predictions = len(df_atk_conf)
-            df_base_conf = base_group.head(num_predictions)
+            df_base_conf = df_base.head(num_predictions)
+            # df_atk_conf and df_base_conf are the rows that pertain to the specific
+            # prediction quality (confidence) of interest
             base_prec = df_base_conf['prediction'].mean()
-            base_recall = len(df_base_conf) / len(base_group)
+            base_recall = len(df_base_conf) / len(df_base)
             attack_prec = df_atk_conf['prediction'].mean()
-            attack_recall = len(df_atk_conf) / len(attack_group)
+            attack_recall = len(df_atk_conf) / len(df_attack)
             alc_score = alc.alc(p_base=base_prec, c_base=base_recall, p_attack=attack_prec, c_attack=attack_recall)
+            base_ci = None
+            attack_ci = None
+            if with_conf:
+                _, low, high, _ = ConfidenceInterval().compute_precision_interval(
+                              measure=self.confidence_interval_type,
+                              confidence=self.confidence,
+                              n = len(df_base_conf),
+                              precision = base_prec,
+                )
+                base_ci = high - low
+                _, low, high, _ = ConfidenceInterval().compute_precision_interval(
+                              measure=self.confidence_interval_type,
+                              confidence=self.confidence,
+                              n = len(df_atk_conf),
+                              precision = attack_prec,
+                )
+                attack_ci = high - low
+                pass
             score_info.append({
                 'base_prec': base_prec,
                 'base_recall': base_recall,
                 'attack_prec': attack_prec,
                 'attack_recall': attack_recall,
                 'alc': alc_score,
+                'base_ci': base_ci,
+                'attack_ci': attack_ci,
             })
         return score_info
 
@@ -283,7 +319,7 @@ class PredictionResults:
             attack_group = group[group['predict_type'] == 'attack']
             base_count = len(base_group)
             attack_count = len(attack_group)
-            score_info = self.get_alc_scores(base_group, attack_group)
+            score_info = self.get_alc_scores(base_group, attack_group, with_conf=True)
             for score in score_info:
                 rows.append({
                     'target_column': target_col,
@@ -309,7 +345,7 @@ class PredictionResults:
             base_count = len(base_group)
             attack_count = len(attack_group)
             num_known_columns = group['num_known_columns'].iloc[0]
-            score_info = self.get_alc_scores(base_group, attack_group)
+            score_info = self.get_alc_scores(base_group, attack_group, with_conf=True)
             for score in score_info:
                 rows.append({
                     'target_column': target_col,
@@ -321,7 +357,9 @@ class PredictionResults:
                     'attack_recall': score['attack_recall'],
                     'alc': score['alc'],
                     'base_count': base_count,
-                    'attack_count': attack_count
+                    'attack_count': attack_count,
+                    'base_ci': score['base_ci'],
+                    'attack_ci': score['attack_ci'],
                 })
         return pd.DataFrame(rows)
 
@@ -368,6 +406,10 @@ class PredictionResults:
                    base_confidence: float = None,
                    attack_confidence: float = None,
                    ) -> None:
+        if base_confidence is not None and base_confidence == 0:
+            base_confidence = None
+        if attack_confidence is not None and attack_confidence == 0:
+            attack_confidence = None
         if target_col not in self.all_target_columns:
             self.all_target_columns.append(target_col)
         for col in known_columns:
