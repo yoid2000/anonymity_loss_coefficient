@@ -171,11 +171,11 @@ print("\nThe PredictionResults class is a helper class that stores the results o
 
 print('''
 ```
-pred_res = PredictionResults(results_path = 'example',
+pred_res = PredictionResults(results_path = "example",
                              attack_name = "Example Attacks")
 ```
 ''')
-pred_res = PredictionResults(results_path = 'example',
+pred_res = PredictionResults(results_path = "example",
                              attack_name = "Example Attacks")
 
 print("\nNow lets run the attacks. An attack consists of a set of predictions on the value of a categorical column (the 'secret' column), assuming knowledge of the value of one or more other columns (the 'known columns'). We make two kinds of predictions, attack predictions and baseline predictions. An attack prediction is made on a row taken from the initial data over the anonymized data. A baseline prediction is made from a row taken from the control data over the original data. Note that, since the control row is not part of the original data, the prediction is privacy neutral.")
