@@ -121,12 +121,12 @@ np.random.seed(42)
 print("Assume that df_initial is the initial raw data that we want to measure")
 df_initial = make_data(10000)
 print(f"The initial data has {len(df_initial)} rows. Here are the first 5 rows:")
-print("`df_initial.head()`")
+print("\n`df_initial.head()`")
 cb()
 print(df_initial.head())
 cb()
 print(f"and here are some summary statistics:")
-print("`df_initial.describe()`")
+print("\n`df_initial.describe()`")
 cb()
 print(df_initial.describe())
 cb()
@@ -148,23 +148,23 @@ print(f"df_original has the remaining {len(df_original)} rows.")
 
 print("\nAt this point, we have prepared the dataframes needed for the ALC measures.")
 print("\nThe DataFiles class is used primarily to preprocess the data. It removes NaN rows, and encodes categorical columns as integers.")
-print("`adf = DataFiles(df_original, df_control, syn_data)`")
+print("\n`adf = DataFiles(df_original, df_control, syn_data)`")
 adf = DataFiles(df_original, df_control, syn_data)
 print("We see for instance that the text column 't1' has been encoded as integers:")
-print("`adf.orig.head()`")
+print("\n`adf.orig.head()`")
 cb()
 print(adf.orig.head())
 cb()
 
 print("\n The Datafiles class also labels each column as categorical or continuous, if this labeling was not supplied to the DataFiles class:")
-print("`adf.col_types`")
+print("\n`adf.col_types`")
 cb()
 pp.pprint(adf.col_types)
 cb()
 
 print("\nThe BaselinePredictor class is used to make baseline predictions on categorical columns. Internally it uses df_original and col_types from the DataFiles class.")
 
-print("`base_pred = BaselinePredictor(adf)`")
+print("\n`base_pred = BaselinePredictor(adf)`")
 base_pred = BaselinePredictor(adf)
 
 print("\nThe PredictionResults class is a helper class that stores the results of the predictions, and provides methods that summarize the precision, recall, and ALC scores.")
@@ -207,7 +207,7 @@ secret_column = 't1'
 
 print("\nFor the baseline predictions, we need to make a model from the original data.")
 
-print("`base_pred.build_model(known_columns, secret_column)`")
+print("\n`base_pred.build_model(known_columns, secret_column)`")
 base_pred.build_model(known_columns, secret_column)
 
 print("\nRun the predictions loop. There is the question of how many predictions to make in order to get a statistically significant result. To avoid doing more work than necessary, pred_res can calculate confidence intervals over the set of predictions made so far.")
@@ -229,23 +229,23 @@ cb()
 
 print("\nNote that attack_confidence is 1.0. For this particular type of attack, this means that all of the rows that matched the known columns agreed on the predicted value. Different predictions, however, may have different confidence levels. In this case, we see that, among the predictions, there are 5 unique confidence levels:")
 
-print("`df_results['attack_confidence'].unique())`")
+print("\n`df_results['attack_confidence'].unique())`")
 cb()
 print(df_results['attack_confidence'].unique())
 cb()
 
 print("\nThe PredictionResults class can compute the precision, recall, and ALC for each combination of known columns and secret column. When there are multiple confidence levels, the PredictionResults class computes the ALC for different recall values starting with only the highest confidence predictions (low recall), and working through lower confidence predictions.")
-print("`df_per_comb_results = pred_res.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)`")
+print("\n`df_per_comb_results = pred_res.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)`")
 df_per_comb_results = pred_res.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)
 
 print("\nIn total, here are the columns produced by the alc_per_secret_and_known_df method:")
-print("`df_per_comb_results.columns`")
+print("\n`df_per_comb_results.columns`")
 cb()
 print(df_per_comb_results.columns)
 cb()
 
 print("\nLet's look at the precision, recall, and ALC scores:")
-print("`df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']]`")
+print("\n`df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']]`")
 cb()
 print(df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
 cb()
@@ -269,5 +269,15 @@ print("\nHere we see quite a different story. Since 'i1' and 't1' are perfectly 
 
 print("\nFinally, we can get a summary of the ALC scores for all attacks. This is placed in a directory with the name originally conveyed to the PredictionResults class `results_path` variable. In our case, 'example'.")
 
-print("`pred_res.summarize_results()`")
+print("\n`pred_res.summarize_results()`")
 pred_res.summarize_results()
+
+print('''
+This produces the following files:
+* summary_raw.csv: All of the predictions
+* summary_secret.csv: The precision, recall, and ALC scores for predictions grouped by secret column
+* summary_secret_known.csv: The precision, recall, and ALC scores for predictions grouped by secret column and known columns
+* summary.txt: A descriptive summary of the results
+
+Note finally that, if there are enough attacks to warrant it, `pred_res.summarize_results()` generates several plots as well.
+''')
