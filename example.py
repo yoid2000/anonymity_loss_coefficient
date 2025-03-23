@@ -112,6 +112,8 @@ def run_predictions_loop(adf: DataFiles,
                 print(f"Attack confidence interval ({round(cii['ci_low'],2)}, {round(cii['ci_high'],2)}) is within tolerance after {i+1} attacks on precision {round(cii['prec'],2)}")
                 return
 
+def cb() -> str:
+    print("```")
 
 pp = pprint.PrettyPrinter(indent=4)
 np.random.seed(42)
@@ -146,11 +148,15 @@ print("`adf = DataFiles(df_original, df_control, syn_data)`")
 adf = DataFiles(df_original, df_control, syn_data)
 print("We see for instance that the text column 't1' has been encoded as integers:")
 print("`adf.orig.head()`")
+cb()
 print(adf.orig.head())
+cb()
 
 print("\n The Datafiles class also labels each column as categorical or continuous, if this labeling was not supplied to the DataFiles class:")
 print("`adf.col_types`")
+cb()
 pp.pprint(adf.col_types)
+cb()
 
 print("\nThe BaselinePredictor class is used to make baseline predictions on categorical columns. Internally it uses df_original and col_types from the DataFiles class.")
 print("`base_pred = BaselinePredictor(adf)`")
@@ -204,12 +210,16 @@ print(df_results[df_results['predict_type'] == 'attack'].iloc[0])
 ```
 ''')
 df_results = pred_res.get_results_df()
+cb()
 print(df_results[df_results['predict_type'] == 'attack'].iloc[0])
+cb()
 
 print("\nNote that attack_confidence is 1.0. For this particular type of attack, this means that all of the rows that matched the known columns agreed on the predicted value. Different predictions, however, may have different confidence levels. In this case, we see that, among the predictions, there are 5 unique confidence levels:")
 
 print("`df_results['attack_confidence'].unique())`")
+cb()
 print(df_results['attack_confidence'].unique())
+cb()
 
 print("\nThe PredictionResults class can compute the precision, recall, and ALC for each combination of known columns and secret column. When there are multiple confidence levels, the PredictionResults class computes the ALC for different recall values starting with only the highest confidence predictions (low recall), and working through lower confidence predictions.")
 print("`df_per_comb_results = pred_res.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)`")
@@ -217,11 +227,15 @@ df_per_comb_results = pred_res.alc_per_secret_and_known_df(known_columns=known_c
 
 print("\nIn total, here are the columns produced by the alc_per_secret_and_known_df method:")
 print("`df_per_comb_results.columns`")
+cb()
 print(df_per_comb_results.columns)
+cb()
 
 print("\nLet's look at the precision, recall, and ALC scores:")
 print("`df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']]`")
+cb()
 print(df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
+cb()
 
 print("\nAs it so happens, there is no correlation between 't1' and 'i2' or 'f1'. As a result, the baseline precision is always quite low, and different recall values don't really help. By contrast, because our anonymity is weak, attack precision is high, and improves as recall is lower. This leads to a high ALC score, the highest at recall=0.75, showing that anonymity is indeed weak.")
 
@@ -234,6 +248,8 @@ run_predictions_loop(adf, base_pred, pred_res, secret_column,
 
 print("\nLet's look at the precision, recall, and ALC scores for the second attack:")
 df_per_comb_results = pred_res.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)
+cb()
 print(df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
+cb()
 
 print("\nHere we see quite a different story. Since 'i1' and 't1' are perfectly correlated, the baseline precision is always 1.0. Because of the anonymization, however, the attack precision, while pretty high (around 0.9), is not perfect. Because the attack precision is always less than the baseline precision, the ALC score is always negative, which translates to no anonymity loss whatsoever.")
