@@ -264,7 +264,6 @@ class PredictionResults:
         self.ci_type = ci_type
         self.summary_path_csv = None
         if self.results_path is not None:
-            print(self.results_path)
             os.makedirs(self.results_path, exist_ok=True)
         self.all_known_columns = []
         self.all_target_columns = []
