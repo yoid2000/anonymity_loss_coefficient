@@ -110,11 +110,6 @@ class BaselinePredictor:
             except Exception as e:
                 # raise error
                 raise ValueError(f"Error building RandomForestClassifier {e}") from e
-        elif self.adf.col_types == 'continuous':
-            try:
-                model = RandomForestRegressor(random_state=42)
-            except Exception as e:
-                raise ValueError(f"Error building RandomForestRegressor {e}") from e
         else:
             raise ValueError("target_type must be 'categorical' or 'continuous'")
 
@@ -190,6 +185,8 @@ class ConfidenceInterval:
         # sort df_base by base_confidence descending
         df_base = df_base.sort_values(by='base_confidence', ascending=False)
         atk_confs = sorted(df_attack['attack_confidence'].unique(), reverse=True)
+        # limit atk_confs to 10 values, because there can be very many
+        atk_confs = select_evenly_distributed_values(atk_confs)
         for atk_conf in atk_confs:
             df_atk_conf = df_attack[df_attack['attack_confidence'] >= atk_conf]
             num_predictions = len(df_atk_conf)
@@ -275,62 +272,36 @@ class PredictionResults:
         self.ci = ConfidenceInterval()
         self.ci_target = ''
         self.ci_known_columns = []
+        self.df_secret_known_results = None
+        self.df_secret_results = None
+        self.df_results = None
 
     def _get_results_dict(self) -> List[Dict[str, Any]]:
         return self.results
     
-    def _get_results_df(self) -> pd.DataFrame:
-        return pd.DataFrame(self.results)
+    def get_results_df(self,
+                       known_columns: Optional[List[str]] = None,
+                       secret_column: Optional[str] = None) -> pd.DataFrame:
+        if self.df_results is None:
+            self._get_results_df()
+        return self._filter_df(self.df_results, known_columns, secret_column)
 
-    def summarize_results(self,
-                          with_text: bool = True,
-                          with_plot: bool = True) -> None:
-        if self.results_path is None:
-            raise ValueError("PredictionResults called without a results_path")
-        df = self._get_results_df()
-        self.save_to_csv(df, 'summary_raw.csv')
-        df_secret_known = self.alc_per_secret_and_known(df)
-        self.save_to_csv(df_secret_known, 'summary_secret_known.csv')
-        df_secret = self.alc_per_secret(df)
-        self.save_to_csv(df_secret, 'summary_secret.csv')
-        if with_text:
-            text_summary = make_text_summary(df_secret_known,
-                                                self.strong_thresh,
-                                                self.risk_thresh,
-                                                self.all_target_columns,
-                                                self.all_known_columns,
-                                                self.attack_name)
-            self.save_to_text(text_summary, 'summary.txt')
-        if with_plot:
-            plot_alc(df_secret_known,
-                        self.strong_thresh,
-                        self.risk_thresh,
-                        self.attack_name,
-                        os.path.join(self.results_path, 'alc_plot.png'))
-            plot_alc_prec(df_secret_known,
-                        self.strong_thresh,
-                        self.risk_thresh,
-                        self.attack_name,
-                        os.path.join(self.results_path, 'alc_prec_plot.png'))
-            plot_alc_best(df_secret_known,
-                        self.strong_thresh,
-                        self.risk_thresh,
-                        self.attack_name,
-                        os.path.join(self.results_path, 'alc_plot_best.png'))
-            plot_alc_prec_best(df_secret_known,
-                        self.strong_thresh,
-                        self.risk_thresh,
-                        self.attack_name,
-                        os.path.join(self.results_path, 'alc_prec_plot_best.png'))
+    def _get_results_df(self) -> None:
+        self.df_results = pd.DataFrame(self.results)
 
-    def print_example_attack(self, df: pd.DataFrame) -> None:
-        string = ''
-        for _, row in df.iterrows():
-            string += f"ALC: {round(row['alc'],2)}, base (prec: {round(row['base_prec'],2)}, recall: {round(row['base_recall'],2)}), attack (prec: {round(row['attack_prec'],2)}, recall: {round(row['attack_recall'],2)})\n"
-            string +=f"    Secret: {row['target_column']}, Known: {row['known_columns']}\n"
-        return string
+    def alc_per_secret_df(self,
+                       known_columns: Optional[List[str]] = None,
+                       secret_column: Optional[str] = None) -> pd.DataFrame:
+        if self.df_results is None:
+            self._get_results_df()
+        if self.df_secret_results is None:
+            self._alc_per_secret_df()
+        return self._filter_df(self.df_secret_results, known_columns, secret_column)
 
-    def alc_per_secret(self, df_in: pd.DataFrame) -> pd.DataFrame:
+    def _alc_per_secret_df(self) -> None:
+        if self.df_results is None:
+            self._get_results_df()
+        df_in = self.df_results
         df_in['prediction'] = df_in['predicted_value'] == df_in['true_value']
         rows = []
         grouped = df_in.groupby('target_column', as_index=False)
@@ -359,9 +330,21 @@ class PredictionResults:
                     'attack_ci_high': score['attack_ci_high'],
                     'attack_n': score['attack_n'],
                 })
-        return pd.DataFrame(rows)
+        self.df_secret_results = pd.DataFrame(rows)
     
-    def alc_per_secret_and_known(self, df_in: pd.DataFrame) -> pd.DataFrame:
+    def alc_per_secret_and_known_df(self,
+                                 known_columns: Optional[List[str]] = None,
+                                 secret_column: Optional[str] = None) -> pd.DataFrame:
+        if self.df_results is None:
+            self._get_results_df()
+        if self.df_secret_known_results is None:
+            self._alc_per_secret_and_known_df()
+        return self._filter_df(self.df_secret_known_results, known_columns, secret_column)
+
+    def _alc_per_secret_and_known_df(self) -> None:
+        if self.df_results is None:
+            self._get_results_df()
+        df_in = self.df_results
         df_in['prediction'] = df_in['predicted_value'] == df_in['true_value']
         rows = []
         # known_columns is a string here
@@ -394,7 +377,61 @@ class PredictionResults:
                     'attack_ci_high': score['attack_ci_high'],
                     'attack_n': score['attack_n'],
                 })
-        return pd.DataFrame(rows)
+        self.df_secret_known_results = pd.DataFrame(rows)
+
+    def _filter_df(self, df: pd.DataFrame,
+                  known_columns: Optional[List[str]] = None,
+                  secret_column: Optional[str] = None) -> pd.DataFrame:
+        if known_columns is not None:
+            known_columns_str = self._make_known_columns_str(known_columns)
+            df = df[df['known_columns'] == known_columns_str]
+        if secret_column is not None:
+            df = df[df['target_column'] == secret_column]
+        return df
+
+    def _make_known_columns_str(self, known_columns: List[str]) -> str:
+        return json.dumps(sorted(known_columns))
+
+    def summarize_results(self,
+                          with_text: bool = True,
+                          with_plot: bool = True) -> None:
+        if self.results_path is None:
+            raise ValueError("summarize_results called without a results_path")
+        df = self.get_results_df()
+        self.save_to_csv(df, 'summary_raw.csv')
+        df_secret_known = self.alc_per_secret_and_known_df()
+        self.save_to_csv(df_secret_known, 'summary_secret_known.csv')
+        df_secret = self.alc_per_secret_df()
+        self.save_to_csv(df_secret, 'summary_secret.csv')
+        if with_text:
+            text_summary = make_text_summary(df_secret_known,
+                                                self.strong_thresh,
+                                                self.risk_thresh,
+                                                self.all_target_columns,
+                                                self.all_known_columns,
+                                                self.attack_name)
+            self.save_to_text(text_summary, 'summary.txt')
+        if with_plot:
+            plot_alc(df_secret_known,
+                        self.strong_thresh,
+                        self.risk_thresh,
+                        self.attack_name,
+                        os.path.join(self.results_path, 'alc_plot.png'))
+            plot_alc_prec(df_secret_known,
+                        self.strong_thresh,
+                        self.risk_thresh,
+                        self.attack_name,
+                        os.path.join(self.results_path, 'alc_prec_plot.png'))
+            plot_alc_best(df_secret_known,
+                        self.strong_thresh,
+                        self.risk_thresh,
+                        self.attack_name,
+                        os.path.join(self.results_path, 'alc_plot_best.png'))
+            plot_alc_prec_best(df_secret_known,
+                        self.strong_thresh,
+                        self.risk_thresh,
+                        self.attack_name,
+                        os.path.join(self.results_path, 'alc_prec_plot_best.png'))
 
     def add_base_result(self,
                    known_columns: List[str],
@@ -434,6 +471,11 @@ class PredictionResults:
                    base_confidence: float = None,
                    attack_confidence: float = None,
                    ) -> None:
+        # Reset the results dataframes because they will be out of date after this add
+        self.df_secret_known_results = None
+        self.df_secret_results = None
+        self.df_results = None
+
         if base_confidence is not None and base_confidence == 0:
             base_confidence = None
         if attack_confidence is not None and attack_confidence == 0:
@@ -455,7 +497,7 @@ class PredictionResults:
             prediction = False
         self.results.append({
             'predict_type': predict_type,
-            'known_columns': json.dumps(known_columns),
+            'known_columns': self._make_known_columns_str(known_columns),
             'num_known_columns': len(known_columns),
             'target_column': target_col,
             'predicted_value': predicted_value,
@@ -602,3 +644,16 @@ class AnonymityLossCoefficient:
         return pcc_atk
 
 
+def select_evenly_distributed_values(sorted_list):
+    '''
+    This limits the number of values in the list to 10 values, evenly distributed
+    '''
+    if len(sorted_list) <= 10:
+        return sorted_list
+    selected_values = [sorted_list[0]]
+    step_size = (len(sorted_list) - 1) / 9
+    for i in range(1, 9):
+        index = int(round(i * step_size))
+        selected_values.append(sorted_list[index])
+    selected_values.append(sorted_list[-1])
+    return selected_values
