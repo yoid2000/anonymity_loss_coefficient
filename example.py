@@ -122,10 +122,14 @@ print("Assume that df_initial is the initial raw data that we want to measure")
 df_initial = make_data(10000)
 print(f"The initial data has {len(df_initial)} rows. Here are the first 5 rows:")
 print("`df_initial.head()`")
+cb()
 print(df_initial.head())
+cb()
 print(f"and here are some summary statistics:")
 print("`df_initial.describe()`")
+cb()
 print(df_initial.describe())
+cb()
 
 print('Assume that 4 anonymized datasets have been generated from df_initial. Of course, this also works with only a single anonymized dataset. (The "anonymization" here is nothing more than swapping a small fraction of the values.)')
 syn_data = [anonymize_data(df_initial) for _ in range(4)]
@@ -159,12 +163,20 @@ pp.pprint(adf.col_types)
 cb()
 
 print("\nThe BaselinePredictor class is used to make baseline predictions on categorical columns. Internally it uses df_original and col_types from the DataFiles class.")
+
 print("`base_pred = BaselinePredictor(adf)`")
 base_pred = BaselinePredictor(adf)
 
 print("\nThe PredictionResults class is a helper class that stores the results of the predictions, and provides methods that summarize the precision, recall, and ALC scores.")
-print('''`pred_res = PredictionResults(attack_name = "Example Attacks")`''')
-pred_res = PredictionResults(attack_name = "Example Attacks")
+
+print('''
+```
+pred_res = PredictionResults(results_path = 'example',
+                             attack_name = "Example Attacks")
+```
+''')
+pred_res = PredictionResults(results_path = 'example',
+                             attack_name = "Example Attacks")
 
 print("\nNow lets run the attacks. An attack consists of a set of predictions on the value of a categorical column (the 'secret' column), assuming knowledge of the value of one or more other columns (the 'known columns'). We make two kinds of predictions, attack predictions and baseline predictions. An attack prediction is made on a row taken from the initial data over the anonymized data. A baseline prediction is made from a row taken from the control data over the original data. Note that, since the control row is not part of the original data, the prediction is privacy neutral.")
 
@@ -194,6 +206,7 @@ known_columns = ['i2', 'f1']
 secret_column = 't1'
 
 print("\nFor the baseline predictions, we need to make a model from the original data.")
+
 print("`base_pred.build_model(known_columns, secret_column)`")
 base_pred.build_model(known_columns, secret_column)
 
@@ -253,3 +266,8 @@ print(df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_re
 cb()
 
 print("\nHere we see quite a different story. Since 'i1' and 't1' are perfectly correlated, the baseline precision is always 1.0. Because of the anonymization, however, the attack precision, while pretty high (around 0.9), is not perfect. Because the attack precision is always less than the baseline precision, the ALC score is always negative, which translates to no anonymity loss whatsoever.")
+
+print("\nFinally, we can get a summary of the ALC scores for all attacks. This is placed in a directory with the name originally conveyed to the PredictionResults class `results_path` variable. In our case, 'example'.")
+
+print("`pred_res.summarize_results()`")
+pred_res.summarize_results()
