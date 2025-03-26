@@ -15,7 +15,6 @@ class DataFiles:
                  df_original: pd.DataFrame,
                  df_control: pd.DataFrame,
                  df_synthetic: Union[pd.DataFrame, List[pd.DataFrame]],
-                 col_types: Optional[Dict[str, str]] = None,
                  disc_max: int = 50,
                  disc_bins: int = 20,
                  ) -> None:
@@ -24,17 +23,6 @@ class DataFiles:
         self._encoders = {}
         self.orig = df_original
         self.cntl = df_control
-
-        if col_types is None:
-            self.col_types = self.estimate_column_types(self.orig)
-        else:
-            # make sure that every key in col_types is a column of self.orig, and
-            # that every value is either 'categorical' or 'continuous'
-            if not all(col in self.orig.columns for col in col_types.keys()):
-                raise ValueError("All keys in col_types must be columns of df_original")
-            if not all(val in ['categorical', 'continuous'] for val in col_types.values()):
-                raise ValueError("All values in col_types must be either 'categorical' or 'continuous'")
-            self.col_types = col_types
 
         if isinstance(df_synthetic, pd.DataFrame):
             self.syn_list = [df_synthetic]
@@ -45,7 +33,6 @@ class DataFiles:
         self.orig = self.orig.dropna()
         self.cntl = self.cntl.dropna()
         self.syn_list = [df.dropna() for df in self.syn_list]
-
 
         # Find numeric columns with more than disc_max unique values in df_orig
         numeric_cols = self.orig.select_dtypes(include=[np.number]).columns
@@ -72,13 +59,9 @@ class DataFiles:
         self.cntl = self.discretize_df(self.cntl, cols_to_discretize, discretizers)
         self.syn_list = [self.discretize_df(df, cols_to_discretize, discretizers) for df in self.syn_list]
 
-        print(cols_to_discretize)
-        for col in cols_to_discretize:
-            print(self.orig[col].dtype)
-            print(self.orig[col].value_counts())
-        quit()
-
-        columns_to_encode = [col for col in self.col_types.keys() if self.col_types[col] == 'categorical']
+        # At this point, all columns can be treated as categorical
+        # set columns_to_encode to be all columns that are not integer
+        columns_to_encode = self.orig.select_dtypes(exclude=[np.int64, np.int32]).columns
         self._encoders = self.fit_encoders(columns_to_encode, [self.orig, self.cntl] + self.syn_list)
 
         self.orig = self.transform_df(self.orig)
@@ -96,11 +79,6 @@ class DataFiles:
                 df[col] = pd.Categorical.from_codes(bin_indices, bin_labels)
         return df
 
-
-    def is_categorical(self, column: str) -> bool:
-        if column not in self.col_types:
-            raise ValueError(f"Column {column} not found in col_types")
-        return self.col_types[column] == 'categorical'
 
     def transform_df(self, df: pd.DataFrame) -> pd.DataFrame:
         for col, encoder in self._encoders.items():
@@ -127,20 +105,6 @@ class DataFiles:
 
         return encoders
 
-    def estimate_column_types(self, df: pd.DataFrame) -> Dict[str, str]:
-        column_types: Dict[str, str] = {}
-        for col in df.columns:
-            if df[col].dtype == 'object' or df[col].dtype == 'string':
-                column_types[col] = 'categorical'
-            elif pd.api.types.is_numeric_dtype(df[col]):
-                if df[col].nunique() < 10:
-                    column_types[col] = 'categorical'
-                else:
-                    column_types[col] = 'continuous'
-            else:
-                column_types[col] = 'continuous'
-        return column_types
-
 
 class BaselinePredictor:
     '''
@@ -154,14 +118,11 @@ class BaselinePredictor:
         y = self.adf.orig[target_col]
 
         # Build and train the model
-        if self.adf.col_types[target_col] == 'categorical':
-            try:
-                model = RandomForestClassifier(random_state=42)
-            except Exception as e:
-                # raise error
-                raise ValueError(f"Error building RandomForestClassifier {e}") from e
-        else:
-            raise ValueError("target_type must be 'categorical' or 'continuous'")
+        try:
+            model = RandomForestClassifier(random_state=42)
+        except Exception as e:
+            # raise error
+            raise ValueError(f"Error building RandomForestClassifier {e}") from e
 
         model.fit(X, y)
         self.model = model
