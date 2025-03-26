@@ -5,7 +5,7 @@ from typing import List
 from anonymity_loss_coefficient.anonymity_loss_coefficient import AnonymityLossCoefficient, DataFiles, BaselinePredictor, PredictionResults
 import pprint
 import warnings
-warnings.filterwarnings('error')
+#warnings.filterwarnings('error')
 
 def make_data(num_rows: int) -> pd.DataFrame:
     t1_values = np.random.choice(['a', 'b', 'c', 'd'], size=num_rows)
@@ -147,7 +147,7 @@ print(f"`df_control` has {len(df_control)} randomly sampled rows from `df_initia
 print(f"`df_original` has the remaining {len(df_original)} rows.")
 
 print("\nAt this point, we have prepared the dataframes needed for the ALC measures.")
-print("\nThe DataFiles class is used primarily to preprocess the data. It removes NaN rows, and encodes categorical columns as integers.")
+print("\nThe DataFiles class is used primarily to preprocess the data. It removes NaN rows, discretizes continuous variables, and encodes non-integer columns as integers.")
 print("\n`adf = DataFiles(df_original, df_control, syn_data)`")
 adf = DataFiles(df_original, df_control, syn_data)
 print("\nWe see for instance that the text column 't1' has been encoded as integers:")
@@ -156,13 +156,8 @@ cb()
 print(adf.orig.head())
 cb()
 
-print("\n The `Datafiles` class also labels each column as categorical or continuous, if this labeling was not supplied to the DataFiles class:")
-print("\n`adf.col_types`")
-cb()
-pp.pprint(adf.col_types)
-cb()
 
-print("\nThe `BaselinePredictor` class is used to make baseline predictions on categorical columns. Internally it uses `df_original` and `col_types` from the `DataFiles` class.")
+print("\nThe `BaselinePredictor` class is used to make baseline predictions on categorical columns. Internally it uses `df_original` from the `DataFiles` class.")
 
 print("\n`base_pred = BaselinePredictor(adf)`")
 base_pred = BaselinePredictor(adf)
