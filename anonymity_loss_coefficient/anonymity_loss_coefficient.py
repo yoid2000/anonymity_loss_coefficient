@@ -4,6 +4,7 @@ import os
 import json
 from typing import Optional, Dict, List, Union, Any, Tuple
 from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import KBinsDiscretizer
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from scipy.stats import norm
 from .reporting import *
@@ -15,7 +16,11 @@ class DataFiles:
                  df_control: pd.DataFrame,
                  df_synthetic: Union[pd.DataFrame, List[pd.DataFrame]],
                  col_types: Optional[Dict[str, str]] = None,
+                 disc_max: int = 50,
+                 disc_bins: int = 20,
                  ) -> None:
+        self.disc_max = disc_max
+        self.disc_bins = disc_bins
         self._encoders = {}
         self.orig = df_original
         self.cntl = df_control
@@ -40,12 +45,57 @@ class DataFiles:
         self.orig = self.orig.dropna()
         self.cntl = self.cntl.dropna()
         self.syn_list = [df.dropna() for df in self.syn_list]
+
+
+        # Find numeric columns with more than disc_max unique values in df_orig
+        numeric_cols = self.orig.select_dtypes(include=[np.number]).columns
+        cols_to_discretize = [col for col in numeric_cols if self.orig[col].nunique() > self.disc_max]
+
+        # Determine the min and max values for each column to discretize from all DataFrames
+        combined_min_max = pd.concat([self.orig, self.cntl] + self.syn_list)
+        discretizers = {}
+        combined_min_max = pd.concat([self.orig, self.cntl] + self.syn_list)
+        discretizers = {}
+        for col in cols_to_discretize:
+            min_val = combined_min_max[col].min()
+            max_val = combined_min_max[col].max()
+            bin_edges = np.linspace(min_val, max_val, num=self.disc_bins+1)
+            discretizer = KBinsDiscretizer(n_bins=self.disc_bins, encode='ordinal', strategy='uniform')
+            # Fit the discretizer with the combined DataFrame to include feature names
+            discretizer.fit(combined_min_max[[col]])
+            # Manually set the bin edges
+            discretizer.bin_edges_ = np.array([bin_edges])
+            discretizers[col] = discretizer
+
+        # Discretize the columns in df_orig, df_cntl, and syn_list using the same bin widths
+        self.orig = self.discretize_df(self.orig, cols_to_discretize, discretizers)
+        self.cntl = self.discretize_df(self.cntl, cols_to_discretize, discretizers)
+        self.syn_list = [self.discretize_df(df, cols_to_discretize, discretizers) for df in self.syn_list]
+
+        print(cols_to_discretize)
+        for col in cols_to_discretize:
+            print(self.orig[col].dtype)
+            print(self.orig[col].value_counts())
+        quit()
+
         columns_to_encode = [col for col in self.col_types.keys() if self.col_types[col] == 'categorical']
         self._encoders = self.fit_encoders(columns_to_encode, [self.orig, self.cntl] + self.syn_list)
 
         self.orig = self.transform_df(self.orig)
         self.cntl = self.transform_df(self.cntl)
         self.syn_list = [self.transform_df(df) for df in self.syn_list]
+
+
+    def discretize_df(self, df: pd.DataFrame, cols_to_discretize: List[str], discretizers: Dict[str, KBinsDiscretizer]) -> pd.DataFrame:
+        for col in cols_to_discretize:
+            if col in discretizers:
+                discretizer = discretizers[col]
+                bin_indices = discretizer.transform(df[[col]]).astype(int).flatten()
+                bin_edges = np.round(discretizer.bin_edges_[0], 2)
+                bin_labels = [f"[{bin_edges[i]}, {bin_edges[i+1]})" for i in range(len(bin_edges) - 1)]
+                df[col] = pd.Categorical.from_codes(bin_indices, bin_labels)
+        return df
+
 
     def is_categorical(self, column: str) -> bool:
         if column not in self.col_types:
