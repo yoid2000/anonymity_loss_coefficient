@@ -150,7 +150,7 @@ print("\nAt this point, we have prepared the dataframes needed for the ALC measu
 print("\nThe DataFiles class is used primarily to preprocess the data. It removes NaN rows, discretizes continuous variables, and encodes non-integer columns as integers. Note in particular that, unless the optional parameter `discertize_in_place` is set to True, the DataFiles class creates a new column for each discretized column, given the name `colname__discretized`. The original column is also kept. The discretized column should be used for the secret column, while the original column should be used for the known column.")
 print("\n`adf = DataFiles(df_original, df_control, syn_data)`")
 adf = DataFiles(df_original, df_control, syn_data)
-print("\nWe see for instance that the text column 't1' has been encoded as integers:")
+print("\nWe see for instance that the text column 't1' has been encoded as integers, and two discretized columns have been created from the continuous columns:")
 print("\n`adf.orig.head()`")
 cb()
 print(adf.orig.head())
