@@ -295,7 +295,7 @@ class PredictionResults:
         self.all_secret_columns = []
         self.results = []
         self.ci = ConfidenceInterval()
-        self.ci_target = ''
+        self.ci_secret = ''
         self.ci_known_columns = []
         self.df_secret_known_results = None
         self.df_secret_results = None
@@ -479,8 +479,8 @@ class PredictionResults:
         self.add_result('attack', known_columns, secret_col, predicted_value, true_value, base_confidence, attack_confidence)
 
     def check_for_ci_reset(self, known_columns: List[str], secret_col: str) -> None:
-        if self.ci_target != secret_col or self.ci_known_columns != known_columns:
-            self.ci_target = secret_col
+        if self.ci_secret != secret_col or self.ci_known_columns != known_columns:
+            self.ci_secret = secret_col
             self.ci_known_columns = known_columns
             self.ci.reset()
     
