@@ -41,7 +41,7 @@ def attack_prediction(adf: DataFiles, pred_res: PredictionResults,
         predicted_value = adf.decode_value(secret_column, predicted_value)
 
     pred_res.add_attack_result(known_columns = known_columns,
-                                target_col = secret_column,
+                                secret_col = secret_column,
                                 predicted_value = predicted_value,
                                 true_value = adf.decode_value(secret_column, true_value),
                                 attack_confidence = fraction,
@@ -75,7 +75,7 @@ def base_prediction(adf: DataFiles, base_pred: BaselinePredictor, pred_res: Pred
     true_value = row[secret_col].iloc[0]
     # We decode the encoded values for later inspection of the attack results
     pred_res.add_base_result(known_columns = known_columns,
-                             target_col = secret_col,
+                             secret_col = secret_col,
                              predicted_value = adf.decode_value(secret_col, predicted_value),
                              true_value = adf.decode_value(secret_col, true_value),
                              base_confidence = proba,
@@ -147,7 +147,7 @@ print(f"`df_control` has {len(df_control)} randomly sampled rows from `df_initia
 print(f"`df_original` has the remaining {len(df_original)} rows.")
 
 print("\nAt this point, we have prepared the dataframes needed for the ALC measures.")
-print("\nThe DataFiles class is used primarily to preprocess the data. It removes NaN rows, discretizes continuous variables, and encodes non-integer columns as integers.")
+print("\nThe DataFiles class is used primarily to preprocess the data. It removes NaN rows, discretizes continuous variables, and encodes non-integer columns as integers. Note in particular that, unless the optional parameter `discertize_in_place` is set to True, the DataFiles class creates a new column for each discretized column, given the name `colname__discretized`. The original column is also kept. The discretized column should be used for the secret column, while the original column should be used for the known column.")
 print("\n`adf = DataFiles(df_original, df_control, syn_data)`")
 adf = DataFiles(df_original, df_control, syn_data)
 print("\nWe see for instance that the text column 't1' has been encoded as integers:")
@@ -194,11 +194,13 @@ print("\nIn a first attack, let's assume that the attacker knows the values of c
 print('''
 ```
 known_columns = ['i2', 'f1']
-secret_column = 't1'
+secret_column = adf.get_discretized_secret_column('t1')
 ```
 ''')
 known_columns = ['i2', 'f1']
-secret_column = 't1'
+secret_column = adf.get_discretized_secret_column('t1')
+
+print("\nNote the use of the `get_discretized_secret_column` method.  This produces the column name of the discretized column, if any. If none, it returns the original column name (which is the case here).")
 
 print("\nFor the baseline predictions, we need to make a model from the original data.")
 
@@ -249,7 +251,7 @@ print("\nAs it so happens, there is no correlation between 't1' and 'i2' or 'f1'
 
 print("\nLet's run a second attack, here assuming that the attacker knows the value of column 'i1' and wants to predict the value of column 't1'.")
 known_columns = ['i1']
-secret_column = 't1'
+secret_column = adf.get_discretized_secret_column('t1')
 base_pred.build_model(known_columns, secret_column)
 run_predictions_loop(adf, base_pred, pred_res, secret_column,
                      known_columns, adf.cntl, df_anon)

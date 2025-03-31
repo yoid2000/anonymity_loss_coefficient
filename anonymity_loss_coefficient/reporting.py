@@ -9,7 +9,7 @@ def plot_alc_prec_best(df: pd.DataFrame,
                   file_path: str) -> None:
     if len(df) < 10:
         return
-    idx = df.groupby(['target_column', 'known_columns'])['alc'].idxmax()
+    idx = df.groupby(['secret_column', 'known_columns'])['alc'].idxmax()
     df_best = df.loc[idx].reset_index(drop=True)
     _plot_alc_prec(df_best, strong_thresh, risk_thresh, attack_name, file_path)
 
@@ -62,7 +62,7 @@ def plot_alc_best(df: pd.DataFrame,
                   file_path: str) -> None:
     if len(df) < 10:
         return
-    idx = df.groupby(['target_column', 'known_columns'])['alc'].idxmax()
+    idx = df.groupby(['secret_column', 'known_columns'])['alc'].idxmax()
     df_best = df.loc[idx].reset_index(drop=True)
     _plot_alc(df_best, strong_thresh, risk_thresh, attack_name, file_path)
 
@@ -108,7 +108,7 @@ def _plot_alc(df: pd.DataFrame,
     df['alc'] = df['alc'].apply(lambda x: max(x, -3.0))
     
     plt.figure(figsize=(6, 4))
-    sns.boxplot(data=df, x='alc', y='target_column', orient='h')
+    sns.boxplot(data=df, x='alc', y='secret_column', orient='h')
     
     low_alc = df['alc'].min()
     lower_ylim = min(-0.05, low_alc)
@@ -124,7 +124,7 @@ def _plot_alc(df: pd.DataFrame,
     
     plt.xlabel('ALC')
     plt.title(attack_name)
-    plt.ylabel('Target Column')
+    plt.ylabel('Secret Column')
     plt.tight_layout()
     plt.savefig(file_path)
     plt.close()
@@ -133,19 +133,19 @@ def print_example_attack(df: pd.DataFrame) -> None:
     string = ''
     for _, row in df.iterrows():
         string += f"ALC: {round(row['alc'],2)}, base (prec: {round(row['base_prec'],2)}, recall: {round(row['base_recall'],2)}), attack (prec: {round(row['attack_prec'],2)}, recall: {round(row['attack_recall'],2)})\n"
-        string +=f"    Secret: {row['target_column']}, Known: {row['known_columns']}\n"
+        string +=f"    Secret: {row['secret_column']}, Known: {row['known_columns']}\n"
     return string
 
-def make_text_summary(df_target_known: pd.DataFrame,
+def make_text_summary(df_secret_known: pd.DataFrame,
                       strong_thresh: float,
                       risk_thresh: float,
-                      all_target_columns,
+                      all_secret_columns,
                       all_known_columns,
                       attack_name) -> str:
-    df = df_target_known.sort_values(by='alc', ascending=False)
-    idx = df.groupby(['target_column', 'known_columns'])['alc'].idxmax()
+    df = df_secret_known.sort_values(by='alc', ascending=False)
+    idx = df.groupby(['secret_column', 'known_columns'])['alc'].idxmax()
     df = df.loc[idx].reset_index(drop=True)
-    # Here, df has the per-target/known combination with the highest ALC
+    # Here, df has the per-secret/known combination with the highest ALC
     total_analyzed_combinations = len(df)
     total_no_anonymity_loss = len(df[df['alc'] <= 0.0])
     total_strong_anonymity = len(df[(df['alc'] > 0.0) & (df['alc'] <= strong_thresh)])
@@ -181,8 +181,8 @@ def make_text_summary(df_target_known: pd.DataFrame,
         summary += f"    {attack_name}\n"
     summary += f"Anonymity Level: {anonymity_level}\n"
     summary += f"    {note}\n\n"
-    summary += f"{len(all_target_columns)} columns used as targeted columns:\n"
-    for column in all_target_columns:
+    summary += f"{len(all_secret_columns)} columns used as secret columns:\n"
+    for column in all_secret_columns:
         summary += f"  {column}\n"
     summary += "\n"
     summary += f"{len(all_known_columns)} columns used as known columns:\n"
@@ -190,7 +190,7 @@ def make_text_summary(df_target_known: pd.DataFrame,
         summary += f"  {column}\n"
     summary += "\n"
     width = len("Perfect anonymity")
-    summary += f"Analyzed known column / target column combinations: {total_analyzed_combinations}\n"
+    summary += f"Analyzed known column / secret column combinations: {total_analyzed_combinations}\n"
     string = "Perfect anonymity"
     summary += f"{string:>{width}}: {total_no_anonymity_loss:>5} ({round(100*(total_no_anonymity_loss/total_analyzed_combinations),1)}%)\n"
     string = "Strong anonymity"

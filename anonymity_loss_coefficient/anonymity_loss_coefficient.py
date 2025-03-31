@@ -17,11 +17,15 @@ class DataFiles:
                  df_synthetic: Union[pd.DataFrame, List[pd.DataFrame]],
                  disc_max: int = 50,
                  disc_bins: int = 20,
+                 discretize_in_place: bool = False,
                  ) -> None:
         self.disc_max = disc_max
         self.disc_bins = disc_bins
+        self.discretize_in_place = discretize_in_place
+        self.discretized_columns = []
         self._encoders = {}
         self.orig = df_original
+        self.original_columns = df_original.columns.tolist()
         self.cntl = df_control
 
         if isinstance(df_synthetic, pd.DataFrame):
@@ -36,14 +40,14 @@ class DataFiles:
 
         # Find numeric columns with more than disc_max unique values in df_orig
         numeric_cols = self.orig.select_dtypes(include=[np.number]).columns
-        cols_to_discretize = [col for col in numeric_cols if self.orig[col].nunique() > self.disc_max]
+        self.discretized_columns = [col for col in numeric_cols if self.orig[col].nunique() > self.disc_max]
 
         # Determine the min and max values for each column to discretize from all DataFrames
         combined_min_max = pd.concat([self.orig, self.cntl] + self.syn_list)
         discretizers = {}
         combined_min_max = pd.concat([self.orig, self.cntl] + self.syn_list)
         discretizers = {}
-        for col in cols_to_discretize:
+        for col in self.discretized_columns:
             min_val = combined_min_max[col].min()
             max_val = combined_min_max[col].max()
             bin_edges = np.linspace(min_val, max_val, num=self.disc_bins+1)
@@ -55,9 +59,9 @@ class DataFiles:
             discretizers[col] = discretizer
 
         # Discretize the columns in df_orig, df_cntl, and syn_list using the same bin widths
-        self.orig = self.discretize_df(self.orig, cols_to_discretize, discretizers)
-        self.cntl = self.discretize_df(self.cntl, cols_to_discretize, discretizers)
-        self.syn_list = [self.discretize_df(df, cols_to_discretize, discretizers) for df in self.syn_list]
+        self.orig = self._discretize_df(self.orig, discretizers)
+        self.cntl = self._discretize_df(self.cntl, discretizers)
+        self.syn_list = [self._discretize_df(df, discretizers) for df in self.syn_list]
 
         # At this point, all columns can be treated as categorical
         # set columns_to_encode to be all columns that are not integer
@@ -68,15 +72,26 @@ class DataFiles:
         self.cntl = self.transform_df(self.cntl)
         self.syn_list = [self.transform_df(df) for df in self.syn_list]
 
+    def get_discretized_secret_column(self, secret_column: str) -> str:
+        if self.discretize_in_place is False:
+            # We might have discritized the secret_column, in which case we want to
+            # return the discretized column name
+            if secret_column in self.discretized_columns:
+                return f"{secret_column}__discretized"
+        return secret_column
 
-    def discretize_df(self, df: pd.DataFrame, cols_to_discretize: List[str], discretizers: Dict[str, KBinsDiscretizer]) -> pd.DataFrame:
-        for col in cols_to_discretize:
+    def _discretize_df(self, df: pd.DataFrame,
+                      discretizers: Dict[str, KBinsDiscretizer]) -> pd.DataFrame:
+        for col in self.discretized_columns:
             if col in discretizers:
                 discretizer = discretizers[col]
                 bin_indices = discretizer.transform(df[[col]]).astype(int).flatten()
                 bin_edges = np.round(discretizer.bin_edges_[0], 2)
                 bin_labels = [f"[{bin_edges[i]}, {bin_edges[i+1]})" for i in range(len(bin_edges) - 1)]
-                df[col] = pd.Categorical.from_codes(bin_indices, bin_labels)
+                if self.discretize_in_place:
+                    df[col] = pd.Categorical.from_codes(bin_indices, bin_labels)
+                else:
+                    df[f"{col}__discretized"] = pd.Categorical.from_codes(bin_indices, bin_labels)
         return df
 
 
@@ -113,9 +128,9 @@ class BaselinePredictor:
         self.adf = adf
         self.model = None
 
-    def build_model(self, known_columns: List[str], target_col: str) -> None:
+    def build_model(self, known_columns: List[str], secret_col: str) -> None:
         X = self.adf.orig[list(known_columns)]
-        y = self.adf.orig[target_col]
+        y = self.adf.orig[secret_col]
 
         # Build and train the model
         try:
@@ -277,7 +292,7 @@ class PredictionResults:
         if self.results_path is not None:
             os.makedirs(self.results_path, exist_ok=True)
         self.all_known_columns = []
-        self.all_target_columns = []
+        self.all_secret_columns = []
         self.results = []
         self.ci = ConfidenceInterval()
         self.ci_target = ''
@@ -314,8 +329,8 @@ class PredictionResults:
         df_in = self.df_results
         df_in['prediction'] = df_in['predicted_value'] == df_in['true_value']
         rows = []
-        grouped = df_in.groupby('target_column', as_index=False)
-        for target_col, group in grouped:
+        grouped = df_in.groupby('secret_column', as_index=False)
+        for secret_col, group in grouped:
             base_group = group[group['predict_type'] == 'base']
             attack_group = group[group['predict_type'] == 'attack']
             base_count = len(base_group)
@@ -323,7 +338,7 @@ class PredictionResults:
             score_info = self.ci.get_alc_scores(base_group, attack_group)
             for score in score_info:
                 rows.append({
-                    'target_column': target_col,
+                    'secret_column': secret_col,
                     'base_prec': score['base_prec'],
                     'base_recall': score['base_recall'],
                     'attack_prec': score['attack_prec'],
@@ -358,8 +373,8 @@ class PredictionResults:
         df_in['prediction'] = df_in['predicted_value'] == df_in['true_value']
         rows = []
         # known_columns is a string here
-        grouped = df_in.groupby(['known_columns', 'target_column'])
-        for (known_columns, target_col), group in grouped:
+        grouped = df_in.groupby(['known_columns', 'secret_column'])
+        for (known_columns, secret_col), group in grouped:
             base_group = group[group['predict_type'] == 'base']
             attack_group = group[group['predict_type'] == 'attack']
             base_count = len(base_group)
@@ -368,7 +383,7 @@ class PredictionResults:
             score_info = self.ci.get_alc_scores(base_group, attack_group)
             for score in score_info:
                 rows.append({
-                    'target_column': target_col,
+                    'secret_column': secret_col,
                     'known_columns': known_columns,
                     'num_known_columns': num_known_columns,
                     'base_prec': score['base_prec'],
@@ -396,7 +411,7 @@ class PredictionResults:
             known_columns_str = self._make_known_columns_str(known_columns)
             df = df[df['known_columns'] == known_columns_str]
         if secret_column is not None:
-            df = df[df['target_column'] == secret_column]
+            df = df[df['secret_column'] == secret_column]
         return df
 
     def _make_known_columns_str(self, known_columns: List[str]) -> str:
@@ -417,7 +432,7 @@ class PredictionResults:
             text_summary = make_text_summary(df_secret_known,
                                                 self.strong_thresh,
                                                 self.risk_thresh,
-                                                self.all_target_columns,
+                                                self.all_secret_columns,
                                                 self.all_known_columns,
                                                 self.attack_name)
             self.save_to_text(text_summary, 'summary.txt')
@@ -445,27 +460,27 @@ class PredictionResults:
 
     def add_base_result(self,
                    known_columns: List[str],
-                   target_col: str,
+                   secret_col: str,
                    predicted_value: Any,
                    true_value: Any,
                    base_confidence: float = None,
                    attack_confidence: float = None,
                    ) -> None:
-        self.add_result('base', known_columns, target_col, predicted_value, true_value, base_confidence, attack_confidence)
+        self.add_result('base', known_columns, secret_col, predicted_value, true_value, base_confidence, attack_confidence)
 
     def add_attack_result(self,
                    known_columns: List[str],
-                   target_col: str,
+                   secret_col: str,
                    predicted_value: Any,
                    true_value: Any,
                    base_confidence: float = None,
                    attack_confidence: float = None,
                    ) -> None:
-        self.add_result('attack', known_columns, target_col, predicted_value, true_value, base_confidence, attack_confidence)
+        self.add_result('attack', known_columns, secret_col, predicted_value, true_value, base_confidence, attack_confidence)
 
-    def check_for_ci_reset(self, known_columns: List[str], target_col: str) -> None:
-        if self.ci_target != target_col or self.ci_known_columns != known_columns:
-            self.ci_target = target_col
+    def check_for_ci_reset(self, known_columns: List[str], secret_col: str) -> None:
+        if self.ci_target != secret_col or self.ci_known_columns != known_columns:
+            self.ci_target = secret_col
             self.ci_known_columns = known_columns
             self.ci.reset()
     
@@ -475,7 +490,7 @@ class PredictionResults:
     def add_result(self,
                    predict_type: str,
                    known_columns: List[str],
-                   target_col: str,
+                   secret_col: str,
                    predicted_value: Any,
                    true_value: Any,
                    base_confidence: float = None,
@@ -490,14 +505,14 @@ class PredictionResults:
             base_confidence = None
         if attack_confidence is not None and attack_confidence == 0:
             attack_confidence = None
-        if target_col not in self.all_target_columns:
-            self.all_target_columns.append(target_col)
+        if secret_col not in self.all_secret_columns:
+            self.all_secret_columns.append(secret_col)
         for col in known_columns:
             if col not in self.all_known_columns:
                 self.all_known_columns.append(col)
         # sort known_columns
         known_columns = sorted(known_columns)
-        self.check_for_ci_reset(known_columns, target_col)
+        self.check_for_ci_reset(known_columns, secret_col)
         # Check if predicted_value is a numpy type
         if isinstance(predicted_value, np.generic):
             predicted_value = predicted_value.item()
@@ -509,7 +524,7 @@ class PredictionResults:
             'predict_type': predict_type,
             'known_columns': self._make_known_columns_str(known_columns),
             'num_known_columns': len(known_columns),
-            'target_column': target_col,
+            'secret_column': secret_col,
             'predicted_value': predicted_value,
             'true_value': true_value,
             'prediction': prediction,
