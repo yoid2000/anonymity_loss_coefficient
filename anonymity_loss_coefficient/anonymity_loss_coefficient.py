@@ -578,104 +578,104 @@ class AnonymityLossCoefficient:
     eliminates attacker incentive.
     '''
     def __init__(self) -> None:
-        # _pcc_abs_weight is the weight given to the absolute PCC difference
-        self._pcc_abs_weight: float = 0.5
-        # _cov_adjust_min_intercept is the coverage value below which precision
-        # has no effect on the PCC
-        self._cov_adjust_min_intercept: float = 1/10000
-        # Higher _cov_adjust_strength leads to lower coverage adjustment
-        self._cov_adjust_strength: float = 3.0
+        # _prc_abs_weight is the weight given to the absolute PRC difference
+        self._prc_abs_weight: float = 0.5
+        # _recall_adjust_min_intercept is the recall value below which precision
+        # has no effect on the PRC
+        self._recall_adjust_min_intercept: float = 1/10000
+        # Higher _recall_adjust_strength leads to lower recall adjustment
+        self._recall_adjust_strength: float = 3.0
 
     def set_param(self, param: str, value: float) -> None:
-        if param == 'pcc_abs_weight':
-            self._pcc_abs_weight = value
-        if param == 'cov_adjust_min_intercept':
-            self._cov_adjust_min_intercept = value
-        if param == 'cov_adjust_strength':
-            self._cov_adjust_strength = value
+        if param == 'prc_abs_weight':
+            self._prc_abs_weight = value
+        if param == 'recall_adjust_min_intercept':
+            self._recall_adjust_min_intercept = value
+        if param == 'recall_adjust_strength':
+            self._recall_adjust_strength = value
 
     def get_param(self, param: str) -> Optional[float]:
-        if param == 'pcc_abs_weight':
-            return self._pcc_abs_weight
-        if param == 'cov_adjust_min_intercept':
-            return self._cov_adjust_min_intercept
-        if param == 'cov_adjust_strength':
-            return self._cov_adjust_strength
+        if param == 'prc_abs_weight':
+            return self._prc_abs_weight
+        if param == 'recall_adjust_min_intercept':
+            return self._recall_adjust_min_intercept
+        if param == 'recall_adjust_strength':
+            return self._recall_adjust_strength
         return None
 
-    def _cov_adjust(self, cov: float) -> float:
-        adjust = (np.log10(cov) / np.log10(self._cov_adjust_min_intercept)) ** self._cov_adjust_strength
+    def _recall_adjust(self, recall: float) -> float:
+        adjust = (np.log10(recall) / np.log10(self._recall_adjust_min_intercept)) ** self._recall_adjust_strength
         return 1 - adjust
 
-    def _pcc_improve_absolute(self, pcc_base: float, pcc_attack: float) -> float:
-        return pcc_attack - pcc_base
+    def _prc_improve_absolute(self, prc_base: float, prc_attack: float) -> float:
+        return prc_attack - prc_base
 
-    def _pcc_improve_relative(self, pcc_base: float, pcc_attack: float) -> float:
-        return (pcc_attack - pcc_base) / (1.00001 - pcc_base)
+    def _prc_improve_relative(self, prc_base: float, prc_attack: float) -> float:
+        return (prc_attack - prc_base) / (1.00001 - prc_base)
 
-    def _pcc_improve(self, pcc_base: float, pcc_attack: float) -> float:
-        pcc_rel = self._pcc_improve_relative(pcc_base, pcc_attack)
-        pcc_abs = self._pcc_improve_absolute(pcc_base, pcc_attack)
-        pcc_improve = (self._pcc_abs_weight * pcc_abs) + ((1 - self._pcc_abs_weight) * pcc_rel)
-        return pcc_improve
+    def _prc_improve(self, prc_base: float, prc_attack: float) -> float:
+        prc_rel = self._prc_improve_relative(prc_base, prc_attack)
+        prc_abs = self._prc_improve_absolute(prc_base, prc_attack)
+        prc_improve = (self._prc_abs_weight * prc_abs) + ((1 - self._prc_abs_weight) * prc_rel)
+        return prc_improve
 
-    def pcc(self, prec: float, cov: float) -> float:
-        ''' Generates the precision-coverage-coefficient, PCC.
-            prev is the precision of the attack, and cov is the coverage.
+    def prc(self, prec: float, recall: float) -> float:
+        ''' Generates the precision-recall-coefficient, PRC.
+            prev is the precision of the attack, and recall is the recall.
         '''
-        if cov <= self._cov_adjust_min_intercept:
-            return cov
-        Cmin = self._cov_adjust_min_intercept
-        alpha = self._cov_adjust_strength
-        C = cov
+        if recall <= self._recall_adjust_min_intercept:
+            return recall
+        Rmin = self._recall_adjust_min_intercept
+        alpha = self._recall_adjust_strength
+        R = recall
         P = prec
-        return (1 - ((np.log10(C) / np.log10(Cmin)) ** alpha)) * P
+        return (1 - ((np.log10(R) / np.log10(Rmin)) ** alpha)) * P
 
     def alc(self,
             p_base: Optional[float] = None,
             c_base: Optional[float] = None,
             p_attack: Optional[float] = None,
             c_attack: Optional[float] = None,
-            pcc_base: Optional[float] = None,
-            pcc_attack: Optional[float] = None
+            prc_base: Optional[float] = None,
+            prc_attack: Optional[float] = None
             ) -> Optional[float]:
-        ''' alc can be called with either p_x and c_x, or pcc_x
+        ''' alc can be called with either p_x and c_x, or prc_x
         '''
-        if pcc_base is None and p_base is not None and c_base is not None:
-            # Adjust the precision based on the coverage to make the
-            # precision-coverage-coefficient pcc
-            pcc_base = self.pcc(p_base, c_base)
-        if pcc_attack is None and p_attack is not None and c_attack is not None:
-            pcc_attack = self.pcc(p_attack, c_attack)
-        if pcc_base is not None and pcc_attack is not None:
-            return self._pcc_improve(pcc_base, pcc_attack)
+        if prc_base is None and p_base is not None and c_base is not None:
+            # Adjust the precision based on the recall to make the
+            # precision-recall-coefficient prc
+            prc_base = self.prc(p_base, c_base)
+        if prc_attack is None and p_attack is not None and c_attack is not None:
+            prc_attack = self.prc(p_attack, c_attack)
+        if prc_base is not None and prc_attack is not None:
+            return self._prc_improve(prc_base, prc_attack)
         return None
 
     # The following aren't necessary for the AnonymityLossCoefficient, but are just
     # for testing
-    def prec_from_pcc_cov(self, pcc: float, cov: float) -> float:
-        ''' Given a PCC and coverage, return the precision.
+    def prec_from_prc_recall(self, prc: float, recall: float) -> float:
+        ''' Given a PRC and recall, return the precision.
         '''
-        Cmin = self._cov_adjust_min_intercept
-        alpha = self._cov_adjust_strength
-        C = cov
-        PCC = pcc
-        return PCC / (1 - (np.log10(C) / np.log10(Cmin)) ** alpha)
+        Rmin = self._recall_adjust_min_intercept
+        alpha = self._recall_adjust_strength
+        R = recall
+        PRC = prc
+        return PRC / (1 - (np.log10(R) / np.log10(Rmin)) ** alpha)
 
-    def cov_from_pcc_prec(self, pcc: float, prec: float) -> float:
-        ''' Given a PCC and precision, return the coverage.
+    def recall_from_prc_prec(self, prc: float, prec: float) -> float:
+        ''' Given a PRC and precision, return the recall.
         '''
-        Cmin = self._cov_adjust_min_intercept
-        alpha = self._cov_adjust_strength
+        Rmin = self._recall_adjust_min_intercept
+        alpha = self._recall_adjust_strength
         P = prec
-        PCC = pcc
-        return 10 ** (np.log10(Cmin) * (1 - PCC / P) ** (1 / alpha))
+        PRC = prc
+        return 10 ** (np.log10(Rmin) * (1 - PRC / P) ** (1 / alpha))
 
-    def pccatk_from_pccbase_alc(self, pcc_base: float, alc: float) -> float:
-        ''' Given a PCC and anonymity loss coefficient, return the PCC of the attack.
+    def prcatk_from_prcbase_alc(self, prc_base: float, alc: float) -> float:
+        ''' Given a PRC and anonymity loss coefficient, return the PRC of the attack.
         '''
-        pcc_atk = ((2 * alc) - (2 * alc) * pcc_base + (2 * pcc_base) - (pcc_base ** 2)) / (2 - pcc_base)
-        return pcc_atk
+        prc_atk = ((2 * alc) - (2 * alc) * prc_base + (2 * prc_base) - (prc_base ** 2)) / (2 - prc_base)
+        return prc_atk
 
 
 def select_evenly_distributed_values(sorted_list):
