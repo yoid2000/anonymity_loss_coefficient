@@ -1,5 +1,7 @@
 import pandas as pd
 import seaborn as sns
+import matplotlib
+matplotlib.use('Agg')  # This needed because of tkinter issues
 import matplotlib.pyplot as plt
 
 

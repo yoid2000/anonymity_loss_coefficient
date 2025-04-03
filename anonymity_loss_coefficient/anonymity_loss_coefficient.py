@@ -41,6 +41,7 @@ class DataFiles:
         # Find numeric columns with more than disc_max unique values in df_orig
         numeric_cols = self.orig.select_dtypes(include=[np.number]).columns
         self.discretized_columns = [col for col in numeric_cols if self.orig[col].nunique() > self.disc_max]
+        self.pre_discretized_columns = [f"{col}__discretized" for col in self.discretized_columns]
 
         # Determine the min and max values for each column to discretize from all DataFrames
         combined_min_max = pd.concat([self.orig, self.cntl] + self.syn_list)
@@ -72,12 +73,20 @@ class DataFiles:
         self.cntl = self.transform_df(self.cntl)
         self.syn_list = [self.transform_df(df) for df in self.syn_list]
 
-    def get_discretized_secret_column(self, secret_column: str) -> str:
+    def get_discretized_column(self, secret_column: str) -> str:
         if self.discretize_in_place is False:
             # We might have discritized the secret_column, in which case we want to
             # return the discretized column name
             if secret_column in self.discretized_columns:
                 return f"{secret_column}__discretized"
+        return secret_column
+
+    def get_pre_discretized_column(self, secret_column: str) -> str:
+        if self.discretize_in_place is False:
+            # We might have discritized the secret_column, in which case we want to
+            # return the discretized column name
+            if secret_column in self.pre_discretized_columns:
+                return secret_column.replace("__discretized", "")
         return secret_column
 
     def _discretize_df(self, df: pd.DataFrame,

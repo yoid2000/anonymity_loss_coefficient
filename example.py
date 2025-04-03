@@ -194,13 +194,13 @@ print("\nIn a first attack, let's assume that the attacker knows the values of c
 print('''
 ```
 known_columns = ['i2', 'f1']
-secret_column = adf.get_discretized_secret_column('t1')
+secret_column = adf.get_discretized_column('t1')
 ```
 ''')
 known_columns = ['i2', 'f1']
-secret_column = adf.get_discretized_secret_column('t1')
+secret_column = adf.get_discretized_column('t1')
 
-print("\nNote the use of the `get_discretized_secret_column` method.  This produces the column name of the discretized column, if any. If none, it returns the original column name (which is the case here).")
+print("\nNote the use of the `get_discretized_column` method.  This produces the column name of the discretized column, if any. If none, it returns the original column name (which is the case here).")
 
 print("\nFor the baseline predictions, we need to make a model from the original data.")
 
@@ -251,7 +251,7 @@ print("\nAs it so happens, there is no correlation between 't1' and 'i2' or 'f1'
 
 print("\nLet's run a second attack, here assuming that the attacker knows the value of column 'i1' and wants to predict the value of column 't1'.")
 known_columns = ['i1']
-secret_column = adf.get_discretized_secret_column('t1')
+secret_column = adf.get_discretized_column('t1')
 base_pred.build_model(known_columns, secret_column)
 run_predictions_loop(adf, base_pred, pred_res, secret_column,
                      known_columns, adf.cntl, df_anon)
