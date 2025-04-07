@@ -22,8 +22,9 @@ class DataFiles:
         self.disc_max = disc_max
         self.disc_bins = disc_bins
         self.discretize_in_place = discretize_in_place
-        self.discretized_columns = []
+        self.columns_for_discretization = []
         self._encoders = {}
+        self.column_classification = {}
         self.orig = df_original
         self.original_columns = df_original.columns.tolist()
         self.cntl = df_control
@@ -40,15 +41,13 @@ class DataFiles:
 
         # Find numeric columns with more than disc_max unique values in df_orig
         numeric_cols = self.orig.select_dtypes(include=[np.number]).columns
-        self.discretized_columns = [col for col in numeric_cols if self.orig[col].nunique() > self.disc_max]
-        self.pre_discretized_columns = [f"{col}__discretized" for col in self.discretized_columns]
+        self.columns_for_discretization = [col for col in numeric_cols if self.orig[col].nunique() > self.disc_max]
+        self.new_discretized_columns = [f"{col}__discretized" for col in self.columns_for_discretization]
 
         # Determine the min and max values for each column to discretize from all DataFrames
         combined_min_max = pd.concat([self.orig, self.cntl] + self.syn_list)
         discretizers = {}
-        combined_min_max = pd.concat([self.orig, self.cntl] + self.syn_list)
-        discretizers = {}
-        for col in self.discretized_columns:
+        for col in self.columns_for_discretization:
             min_val = combined_min_max[col].min()
             max_val = combined_min_max[col].max()
             bin_edges = np.linspace(min_val, max_val, num=self.disc_bins+1)
@@ -64,20 +63,35 @@ class DataFiles:
         self.cntl = self._discretize_df(self.cntl, discretizers)
         self.syn_list = [self._discretize_df(df, discretizers) for df in self.syn_list]
 
-        # At this point, all columns can be treated as categorical
-        # set columns_to_encode to be all columns that are not integer
+        # set columns_to_encode to be all columns that are not integer and not
+        # pre-discretized
         columns_to_encode = self.orig.select_dtypes(exclude=[np.int64, np.int32]).columns
+        if self.discretize_in_place is False:
+            columns_to_encode = [col for col in columns_to_encode if col not in self.columns_for_discretization]
         self._encoders = self.fit_encoders(columns_to_encode, [self.orig, self.cntl] + self.syn_list)
 
-        self.orig = self.transform_df(self.orig)
-        self.cntl = self.transform_df(self.cntl)
-        self.syn_list = [self.transform_df(df) for df in self.syn_list]
+        self.orig = self._transform_df(self.orig)
+        self.cntl = self._transform_df(self.cntl)
+        self.syn_list = [self._transform_df(df) for df in self.syn_list]
+
+        # As a final step, we want to classify all columns as categorical or continuous
+        for col in self.orig.columns:
+            if self.discretize_in_place is True or col not in self.columns_for_discretization:
+                self.column_classification[col] = 'categorical'
+            else:
+                self.column_classification[col] = 'continuous'
+        
+
+    def get_column_classification(self, column: str) -> str:
+        if column not in self.column_classification:
+            raise ValueError(f"Column {column} not found in the DataFrame")
+        return self.column_classification[column]
 
     def get_discretized_column(self, secret_column: str) -> str:
         if self.discretize_in_place is False:
             # We might have discritized the secret_column, in which case we want to
             # return the discretized column name
-            if secret_column in self.discretized_columns:
+            if secret_column in self.columns_for_discretization:
                 return f"{secret_column}__discretized"
         return secret_column
 
@@ -85,13 +99,13 @@ class DataFiles:
         if self.discretize_in_place is False:
             # We might have discritized the secret_column, in which case we want to
             # return the discretized column name
-            if secret_column in self.pre_discretized_columns:
+            if secret_column in self.new_discretized_columns:
                 return secret_column.replace("__discretized", "")
         return secret_column
 
     def _discretize_df(self, df: pd.DataFrame,
                       discretizers: Dict[str, KBinsDiscretizer]) -> pd.DataFrame:
-        for col in self.discretized_columns:
+        for col in self.columns_for_discretization:
             if col in discretizers:
                 discretizer = discretizers[col]
                 bin_indices = discretizer.transform(df[[col]]).astype(int).flatten()
@@ -104,7 +118,7 @@ class DataFiles:
         return df
 
 
-    def transform_df(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _transform_df(self, df: pd.DataFrame) -> pd.DataFrame:
         for col, encoder in self._encoders.items():
             df[col] = encoder.transform(df[col]).astype(int)
         return df
