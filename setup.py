@@ -9,7 +9,12 @@ setup(
     url='https://github.com/yoid2000/anonymity_loss_coefficient',
     packages=find_packages(),
     install_requires=[
-        'numpy',
+        "numpy>=1.21.0",
+        "pandas>=1.3.0",
+        "scipy>=1.7.0",
+        "scikit-learn>=1.0.0",
+        "matplotlib>=3.4.0",
+        "seaborn>=0.11.0",
     ],
     classifiers=[
         'Programming Language :: Python :: 3',
