@@ -123,7 +123,7 @@ class DataFiles:
             # Check if the column is of type 'category'
             if pd.api.types.is_categorical_dtype(df[col]):
                 # Ensure the column's categories match the new categories
-                df[col] = pd.Categorical(transformed_values, categories=range(len(encoder.classes_)))
+                df.loc[:, col] = pd.Categorical(transformed_values, categories=range(len(encoder.classes_)))
             else:
                 # Assign the transformed values directly
                 df.loc[:, col] = transformed_values
