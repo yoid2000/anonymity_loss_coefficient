@@ -59,9 +59,10 @@ class DataFiles:
             discretizers[col] = discretizer
 
         # Discretize the columns in df_orig, df_cntl, and syn_list using the same bin widths
-        self.orig = self._discretize_df(self.orig, discretizers)
-        self.cntl = self._discretize_df(self.cntl, discretizers)
-        self.syn_list = [self._discretize_df(df, discretizers) for df in self.syn_list]
+        self._discretize_df(self.orig, discretizers)
+        self._discretize_df(self.cntl, discretizers)
+        for i, df in enumerate(self.syn_list):
+            self._discretize_df(df, discretizers)
 
         # set columns_to_encode to be all columns that are not integer and not
         # pre-discretized
@@ -70,9 +71,10 @@ class DataFiles:
             columns_to_encode = [col for col in columns_to_encode if col not in self.columns_for_discretization]
         self._encoders = self.fit_encoders(columns_to_encode, [self.orig, self.cntl] + self.syn_list)
 
-        self.orig = self._transform_df(self.orig)
-        self.cntl = self._transform_df(self.cntl)
-        self.syn_list = [self._transform_df(df) for df in self.syn_list]
+        self._transform_df(self.orig)
+        self._transform_df(self.cntl)
+        for i, df in enumerate(self.syn_list):
+            self._transform_df(df)
 
         # As a final step, we want to classify all columns as categorical or continuous
         for col in self.orig.columns:
@@ -103,8 +105,7 @@ class DataFiles:
                 return secret_column.replace("__discretized", "")
         return secret_column
 
-    def _discretize_df(self, df: pd.DataFrame,
-                      discretizers: Dict[str, KBinsDiscretizer]) -> pd.DataFrame:
+    def _discretize_df(self, df: pd.DataFrame, discretizers: Dict[str, KBinsDiscretizer]) -> None:
         for col in self.columns_for_discretization:
             if col in discretizers:
                 discretizer = discretizers[col]
@@ -112,16 +113,20 @@ class DataFiles:
                 bin_edges = np.round(discretizer.bin_edges_[0], 2)
                 bin_labels = [f"[{bin_edges[i]}, {bin_edges[i+1]})" for i in range(len(bin_edges) - 1)]
                 if self.discretize_in_place:
-                    df[col] = pd.Categorical.from_codes(bin_indices, bin_labels)
+                    df.loc[:, col] = pd.Categorical.from_codes(bin_indices, bin_labels)
                 else:
-                    df[f"{col}__discretized"] = pd.Categorical.from_codes(bin_indices, bin_labels)
-        return df
+                    df.loc[:, f"{col}__discretized"] = pd.Categorical.from_codes(bin_indices, bin_labels)
 
-
-    def _transform_df(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _transform_df(self, df: pd.DataFrame) -> None:
         for col, encoder in self._encoders.items():
-            df[col] = encoder.transform(df[col]).astype(int)
-        return df
+            transformed_values = encoder.transform(df[col]).astype(int)
+            # Check if the column is of type 'category'
+            if pd.api.types.is_categorical_dtype(df[col]):
+                # Ensure the column's categories match the new categories
+                df[col] = pd.Categorical(transformed_values, categories=range(len(encoder.classes_)))
+            else:
+                # Assign the transformed values directly
+                df.loc[:, col] = transformed_values
 
     def decode_value(self, column: str, encoded_value: int) -> Any:
         if column not in self._encoders:
@@ -166,6 +171,7 @@ class BaselinePredictor:
             # raise error
             raise ValueError(f"Error building RandomForestClassifier {e}") from e
 
+        y = y.astype(int)  # Convert to integer if necessary
         model.fit(X, y)
         self.model = model
 
