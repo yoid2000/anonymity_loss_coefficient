@@ -128,9 +128,12 @@ class DataFiles:
             return encoded_value
         
         encoder: LabelEncoder = self._encoders[column]
-        original_value = encoder.inverse_transform([encoded_value])
-        
-        return original_value[0]
+
+        # Pass encoded_value directly to inverse_transform
+        original_value = encoder.inverse_transform(np.array([encoded_value]))
+
+        # Return the first element if only one value was decoded
+        return original_value[0] if len(original_value) == 1 else original_value
 
     def fit_encoders(self, columns_to_encode: List[str], dfs: List[pd.DataFrame]) -> Dict[str, LabelEncoder]:
         encoders = {col: LabelEncoder() for col in columns_to_encode}
@@ -151,13 +154,14 @@ class BaselinePredictor:
         self.adf = adf
         self.model = None
 
-    def build_model(self, known_columns: List[str], secret_col: str) -> None:
+    def build_model(self, known_columns: List[str], secret_col: str,  random_state: Optional[int] = None) -> None:
         X = self.adf.orig[list(known_columns)]
         y = self.adf.orig[secret_col]
+        y = y.values.ravel()  # Convert to 1D array
 
         # Build and train the model
         try:
-            model = RandomForestClassifier(random_state=42)
+            model = RandomForestClassifier(random_state=random_state)
         except Exception as e:
             # raise error
             raise ValueError(f"Error building RandomForestClassifier {e}") from e
