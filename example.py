@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from scipy import stats
 from typing import List
-from anonymity_loss_coefficient.anonymity_loss_coefficient import AnonymityLossCoefficient, DataFiles, BaselinePredictor, PredictionResults
+from anonymity_loss_coefficient import AnonymityLossCoefficient, DataFiles, BaselinePredictor, PredictionResults
 import pprint
 import warnings
 #warnings.filterwarnings('error')
@@ -34,9 +34,13 @@ def attack_prediction(adf: DataFiles, pred_res: PredictionResults,
         predicted_value = None
         fraction = 0.0
     else:
-        mode_result = stats.mode(matching_rows[secret_column])
-        predicted_value = mode_result.mode
-        mode_count = mode_result.count
+        mode_result = matching_rows[secret_column].mode()
+        if not mode_result.empty:
+            predicted_value = mode_result.iloc[0]
+            mode_count = (matching_rows[secret_column] == predicted_value).sum()
+        else:
+            predicted_value = None
+            mode_count = 0
         fraction = mode_count / len(matching_rows)
         predicted_value = adf.decode_value(secret_column, predicted_value)
 

@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import matplotlib.pyplot as plt
-from anonymity_loss_coefficient.anonymity_loss_coefficient import AnonymityLossCoefficient
+from anonymity_loss_coefficient import AnonymityLossCoefficient
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
@@ -96,7 +96,7 @@ def plot_identical_recall(out_name, limit=1.0):
     plt.figure(figsize=((8, 5)))
     for increase in increase_values:
         p_attack_values = p_base_values + (increase * (1.0 - p_base_values))
-        scores = [alc.alc(p_base=p_base_value, c_base=recall_value, p_attack=p_attack_value, c_attack=recall_value) for p_base_value, recall_value, p_attack_value, recall_value in zip(p_base_values, recall_values, p_attack_values, recall_values)]
+        scores = [alc.alc(p_base=p_base_value, r_base=recall_value, p_attack=p_attack_value, r_attack=recall_value) for p_base_value, recall_value, p_attack_value, recall_value in zip(p_base_values, recall_values, p_attack_values, recall_values)]
         plt.scatter(recall_values, scores, label=f'precision increase = {increase}', s=2)
     plt.xscale('log')
     plt.grid(True)
@@ -205,50 +205,50 @@ def plot_varying_base_recall(out_name):
     alc = AnonymityLossCoefficient()
     recall_values = np.logspace(np.log10(0.0001), np.log10(1), 5000)
     p_base = 0.5
-    c_attack = 0.01
+    r_attack = 0.01
 
     # Run several different relative improvements between base and attack
     increase_values = [0.2, 0.5, 0.8, 0.98]
     plt.figure(figsize=((8, 5)))
     for increase in increase_values:
         p_attack = p_base + (increase * (1.0 - p_base))
-        scores = [alc.alc(p_base=p_base, c_base=recall_value, p_attack=p_attack, c_attack=c_attack) for recall_value in recall_values]
+        scores = [alc.alc(p_base=p_base, r_base=recall_value, p_attack=p_attack, r_attack=r_attack) for recall_value in recall_values]
         plt.scatter(recall_values, scores, label=f'precision increase = {increase}', s=2)
     plt.xscale('log')
     plt.axvline(x=0.01, color='black', linestyle='dashed')
     plt.grid(True)
     plt.ylim(0, 1)
-    plt.xlabel(f'Base Recall (Attack Recall = {c_attack})', fontsize=12)
+    plt.xlabel(f'Base Recall (Attack Recall = {r_attack})', fontsize=12)
     plt.ylabel('Anonymity Loss Score', fontsize=12)
     plt.legend()
     plt.tight_layout()
     savefigs(plt, out_name)
 
-def run_prc_checks(alc, p_base, c_base, prc_base):
-    if c_base <= 0.0001:
+def run_prc_checks(alc, p_base, r_base, prc_base):
+    if r_base <= 0.0001:
         return
-    p_base_test = round(alc.prec_from_prc_recall(prc_base, c_base),3)
+    p_base_test = round(alc.prec_from_prc_recall(prc_base, r_base),3)
     if round(p_base,3) != p_base_test:
-        print(f'Error: prec_from_prc_recall({prc_base}, {c_base})')
+        print(f'Error: prec_from_prc_recall({prc_base}, {r_base})')
         print(f'Expected: {round(p_base,3)}, got: {p_base_test}')
         quit()
-    c_base_test = round(alc.recall_from_prc_prec(prc_base, p_base),3)
-    if round(c_base,3) != c_base_test:
+    r_base_test = round(alc.recall_from_prc_prec(prc_base, p_base),3)
+    if round(r_base,3) != r_base_test:
         print(f'Error: recall_from_prc_prec({prc_base}, {p_base})')
-        print(f'Expected: {round(c_base,3)}, got: {c_base_test}')
+        print(f'Expected: {round(r_base,3)}, got: {r_base_test}')
         quit()
 
-def do_alc_test(alc, p_base, c_base, increase, c_attack):
+def do_alc_test(alc, p_base, r_base, increase, r_attack):
     print('------------------------------------')
     p_attack = p_base + increase * (1.0 - p_base)
-    print(f'Base precision: {p_base}, base recall: {c_base}\nattack precision: {p_attack}, attack recall: {c_attack}')
+    print(f'Base precision: {p_base}, base recall: {r_base}\nattack precision: {p_attack}, attack recall: {r_attack}')
     print(f'prec increase: {increase}')
-    prc_atk = alc.prc(prec=p_attack, recall=c_attack)
+    prc_atk = alc.prc(prec=p_attack, recall=r_attack)
     print(f'prc_atk: {prc_atk}')
-    prc_base = alc.prc(prec=p_base, recall=c_base)
+    prc_base = alc.prc(prec=p_base, recall=r_base)
     print(f'prc_base: {prc_base}')
-    run_prc_checks(alc, p_base, c_base, prc_base)
-    print(f'ALC: {round(alc.alc(p_base=p_base, c_base=c_base, p_attack=p_attack, c_attack=c_attack),3)}')
+    run_prc_checks(alc, p_base, r_base, prc_base)
+    print(f'ALC: {round(alc.alc(p_base=p_base, r_base=r_base, p_attack=p_attack, r_attack=r_attack),3)}')
 
 def make_alc_plots(recall_adjust_strength=3.0, pairs='v3'):
     alc = AnonymityLossCoefficient()
@@ -269,7 +269,7 @@ def make_alc_plots(recall_adjust_strength=3.0, pairs='v3'):
     
     for i, (Catk, Cbase) in enumerate(Catk_Cbase_pairs):
         for Pbase in Pbase_values:
-            ALC = [alc.alc(p_base=Pbase, c_base=Cbase, p_attack=p, c_attack=Catk) for p in Patk]
+            ALC = [alc.alc(p_base=Pbase, r_base=Cbase, p_attack=p, r_attack=Catk) for p in Patk]
             axs[i].plot(Patk, ALC, label=f'Pbase={Pbase}')
         
         axs[i].text(0.05, 0.95, f'Catk = {Catk}, Cbase = {Cbase}\nalpha = {recall_adjust_strength}\nCmin = 0.0001', transform=axs[i].transAxes, fontsize=10, verticalalignment='top')
@@ -302,18 +302,18 @@ def make_alc_plots(recall_adjust_strength=3.0, pairs='v3'):
     plt.savefig(f'alc_plots/alc_plot_{recall_adjust_strength}_{pairs}.pdf')
 
 alc = AnonymityLossCoefficient()
-do_alc_test(alc, p_base=0.5, c_base=1.0, increase=0.2, c_attack=1.0)
-do_alc_test(alc, p_base=0.2, c_base=1.0, increase=0.8, c_attack=1.0)
-do_alc_test(alc, p_base=0.999, c_base=1.0, increase=0.9, c_attack=1.0)
-do_alc_test(alc, p_base=0.5, c_base=0.1, increase=0.2, c_attack=0.1)
-do_alc_test(alc, p_base=0.2, c_base=0.1, increase=0.8, c_attack=0.1)
-do_alc_test(alc, p_base=0.5, c_base=0.01, increase=0.2, c_attack=0.01)
-do_alc_test(alc, p_base=0.2, c_base=0.01, increase=0.8, c_attack=0.01)
-do_alc_test(alc, p_base=0.5, c_base=0.001, increase=0.2, c_attack=0.001)
-do_alc_test(alc, p_base=0.2, c_base=0.001, increase=0.8, c_attack=0.001)
-do_alc_test(alc, p_base=0.5, c_base=0.0001, increase=0.2, c_attack=0.0001)
-do_alc_test(alc, p_base=0.2, c_base=0.0001, increase=0.8, c_attack=0.0001)
-do_alc_test(alc, p_base=1.0, c_base=0.00001, increase=0, c_attack=0.00001)
+do_alc_test(alc, p_base=0.5, r_base=1.0, increase=0.2, r_attack=1.0)
+do_alc_test(alc, p_base=0.2, r_base=1.0, increase=0.8, r_attack=1.0)
+do_alc_test(alc, p_base=0.999, r_base=1.0, increase=0.9, r_attack=1.0)
+do_alc_test(alc, p_base=0.5, r_base=0.1, increase=0.2, r_attack=0.1)
+do_alc_test(alc, p_base=0.2, r_base=0.1, increase=0.8, r_attack=0.1)
+do_alc_test(alc, p_base=0.5, r_base=0.01, increase=0.2, r_attack=0.01)
+do_alc_test(alc, p_base=0.2, r_base=0.01, increase=0.8, r_attack=0.01)
+do_alc_test(alc, p_base=0.5, r_base=0.001, increase=0.2, r_attack=0.001)
+do_alc_test(alc, p_base=0.2, r_base=0.001, increase=0.8, r_attack=0.001)
+do_alc_test(alc, p_base=0.5, r_base=0.0001, increase=0.2, r_attack=0.0001)
+do_alc_test(alc, p_base=0.2, r_base=0.0001, increase=0.8, r_attack=0.0001)
+do_alc_test(alc, p_base=1.0, r_base=0.00001, increase=0, r_attack=0.00001)
 plot_prec_recall_for_equal_prc('prec_recall_for_equal_prc')
 make_alc_plots(pairs='v3')
 for recall_adjust_strength in [1.0, 2.0, 3.0, 4.0]:

@@ -256,7 +256,7 @@ class ConfidenceInterval:
             base_recall = len(df_base_conf) / len(df_base)
             attack_prec = df_atk_conf['prediction'].mean()
             attack_recall = len(df_atk_conf) / len(df_attack)
-            alc_score = alc.alc(p_base=base_prec, c_base=base_recall, p_attack=attack_prec, c_attack=attack_recall)
+            alc_score = alc.alc(p_base=base_prec, r_base=base_recall, p_attack=attack_prec, r_attack=attack_recall)
             base_ci = None
             attack_ci = None
             base_low, base_high = self.compute_precision_interval(n = len(df_base_conf),
@@ -657,20 +657,20 @@ class AnonymityLossCoefficient:
 
     def alc(self,
             p_base: Optional[float] = None,
-            c_base: Optional[float] = None,
+            r_base: Optional[float] = None,
             p_attack: Optional[float] = None,
-            c_attack: Optional[float] = None,
+            r_attack: Optional[float] = None,
             prc_base: Optional[float] = None,
             prc_attack: Optional[float] = None
             ) -> Optional[float]:
         ''' alc can be called with either p_x and c_x, or prc_x
         '''
-        if prc_base is None and p_base is not None and c_base is not None:
+        if prc_base is None and p_base is not None and r_base is not None:
             # Adjust the precision based on the recall to make the
             # precision-recall-coefficient prc
-            prc_base = self.prc(p_base, c_base)
-        if prc_attack is None and p_attack is not None and c_attack is not None:
-            prc_attack = self.prc(p_attack, c_attack)
+            prc_base = self.prc(p_base, r_base)
+        if prc_attack is None and p_attack is not None and r_attack is not None:
+            prc_attack = self.prc(p_attack, r_attack)
         if prc_base is not None and prc_attack is not None:
             return self._prc_improve(prc_base, prc_attack)
         return None
