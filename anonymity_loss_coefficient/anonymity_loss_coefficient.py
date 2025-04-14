@@ -110,23 +110,19 @@ class DataFiles:
             if col in discretizers:
                 discretizer = discretizers[col]
                 bin_indices = discretizer.transform(df[[col]]).astype(int).flatten()
-                bin_edges = np.round(discretizer.bin_edges_[0], 2)
-                bin_labels = [f"[{bin_edges[i]}, {bin_edges[i+1]})" for i in range(len(bin_edges) - 1)]
                 if self.discretize_in_place:
-                    df.loc[:, col] = pd.Categorical.from_codes(bin_indices, bin_labels)
+                    # Keep the column as integers
+                    df.loc[:, col] = bin_indices
                 else:
-                    df.loc[:, f"{col}__discretized"] = pd.Categorical.from_codes(bin_indices, bin_labels)
+                    # Create a new column with integer values
+                    df.loc[:, f"{col}__discretized"] = bin_indices
 
     def _transform_df(self, df: pd.DataFrame) -> None:
         for col, encoder in self._encoders.items():
+            # Transform the column using the encoder and keep it as integers
             transformed_values = encoder.transform(df[col]).astype(int)
-            # Check if the column is of type 'category'
-            if pd.api.types.is_categorical_dtype(df[col]):
-                # Ensure the column's categories match the new categories
-                df.loc[:, col] = pd.Categorical(transformed_values, categories=range(len(encoder.classes_)))
-            else:
-                # Assign the transformed values directly
-                df.loc[:, col] = transformed_values
+            df.loc[:, col] = transformed_values
+
 
     def decode_value(self, column: str, encoded_value: int) -> Any:
         if column not in self._encoders:
@@ -223,11 +219,11 @@ class ConfidenceInterval:
         alc_scores = self.get_alc_scores(self.df_base, self.df_attack)
         # get alc_score from alc_scores with the maximum 'alc'
         max_alc = max(alc_scores, key=lambda x: x['alc'])
-        return {'base': {'prec': max_alc['base_prec'],
+        return {'base': {'prec': max_alc['base_prec_ci'],
                          'ci_low': max_alc['base_ci_low'],
                          'ci_high': max_alc['base_ci_high'],
                          'n': max_alc['base_n']},
-                'attack': {'prec': max_alc['attack_prec'],
+                'attack': {'prec': max_alc['attack_prec_ci'],
                            'ci_low': max_alc['attack_ci_low'],
                            'ci_high': max_alc['attack_ci_high'],
                            'n': max_alc['attack_n']}}
@@ -245,32 +241,38 @@ class ConfidenceInterval:
         df_base = df_base.sort_values(by='base_confidence', ascending=False)
         atk_confs = sorted(df_attack['attack_confidence'].unique(), reverse=True)
         # limit atk_confs to 10 values, because there can be very many
-        atk_confs = select_evenly_distributed_values(atk_confs)
+        atk_confs = _select_evenly_distributed_values(atk_confs)
         for atk_conf in atk_confs:
             df_atk_conf = df_attack[df_attack['attack_confidence'] >= atk_conf]
             num_predictions = len(df_atk_conf)
-            df_base_conf = df_base.head(num_predictions)
+            df_base_conf = _get_base_subset(df_base, num_predictions)
             # df_atk_conf and df_base_conf are the rows that pertain to the specific
             # prediction quality (confidence) of interest
-            base_prec = df_base_conf['prediction'].mean()
+            base_prec_measured = df_base_conf['prediction'].mean()
             base_recall = len(df_base_conf) / len(df_base)
-            attack_prec = df_atk_conf['prediction'].mean()
+            attack_prec_measured = df_atk_conf['prediction'].mean()
             attack_recall = len(df_atk_conf) / len(df_attack)
-            alc_score = alc.alc(p_base=base_prec, r_base=base_recall, p_attack=attack_prec, r_attack=attack_recall)
             base_ci = None
             attack_ci = None
             base_low, base_high = self.compute_precision_interval(n = len(df_base_conf),
-                                                              precision = base_prec)
+                                                              precision = base_prec_measured)
             base_ci = base_high - base_low
             attack_low, attack_high = self.compute_precision_interval(n = len(df_atk_conf),
-                                                              precision = attack_prec)
+                                                              precision = attack_prec_measured)
             attack_ci = attack_high - attack_low
+            alc_measured = alc.alc(p_base=base_prec_measured, r_base=base_recall, p_attack=attack_prec_measured, r_attack=attack_recall)
+            base_prec_ci = base_low + (base_ci/2)
+            attack_prec_ci = attack_low + (attack_ci/2)
+            alc_ci = alc.alc(p_base=base_prec_ci, r_base=base_recall, p_attack=attack_prec_ci, r_attack=attack_recall)
             score_info.append({
-                'base_prec': base_prec,
                 'base_recall': base_recall,
-                'attack_prec': attack_prec,
                 'attack_recall': attack_recall,
-                'alc': alc_score,
+                'base_prec_ci': base_prec_ci,
+                'attack_prec_ci': attack_prec_ci,
+                'alc': alc_ci,
+                'base_prec_measured': base_prec_measured,
+                'attack_prec_measured': attack_prec_measured,
+                'alc_measured': alc_measured,
                 'base_ci': base_ci,
                 'base_ci_low': base_low,
                 'base_ci_high': base_high,
@@ -281,6 +283,7 @@ class ConfidenceInterval:
                 'attack_n': len(df_atk_conf),
             })
         return score_info
+
 
     def compute_precision_interval(self, n: int,
                                    precision: float) -> Tuple[float, float]:
@@ -372,11 +375,14 @@ class PredictionResults:
             for score in score_info:
                 rows.append({
                     'secret_column': secret_col,
-                    'base_prec': score['base_prec'],
                     'base_recall': score['base_recall'],
-                    'attack_prec': score['attack_prec'],
                     'attack_recall': score['attack_recall'],
+                    'base_prec_ci': score['base_prec_ci'],
+                    'attack_prec_ci': score['attack_prec_ci'],
                     'alc': score['alc'],
+                    'base_prec_measured': score['base_prec_measured'],
+                    'attack_prec_measured': score['attack_prec_measured'],
+                    'alc_measured': score['alc_measured'],
                     'base_count': base_count,
                     'attack_count': attack_count,
                     'base_ci': score['base_ci'],
@@ -419,11 +425,14 @@ class PredictionResults:
                     'secret_column': secret_col,
                     'known_columns': known_columns,
                     'num_known_columns': num_known_columns,
-                    'base_prec': score['base_prec'],
                     'base_recall': score['base_recall'],
-                    'attack_prec': score['attack_prec'],
                     'attack_recall': score['attack_recall'],
+                    'base_prec_ci': score['base_prec_ci'],
+                    'attack_prec_ci': score['attack_prec_ci'],
                     'alc': score['alc'],
+                    'base_prec_measured': score['base_prec_measured'],
+                    'attack_prec_measured': score['attack_prec_measured'],
+                    'alc_measured': score['alc_measured'],
                     'base_count': base_count,
                     'attack_count': attack_count,
                     'base_ci': score['base_ci'],
@@ -603,7 +612,7 @@ class AnonymityLossCoefficient:
     '''
     def __init__(self) -> None:
         # _prc_abs_weight is the weight given to the absolute PRC difference
-        self._prc_abs_weight: float = 0.5
+        self._prc_abs_weight: float = 0.0
         # _recall_adjust_min_intercept is the recall value below which precision
         # has no effect on the PRC
         self._recall_adjust_min_intercept: float = 1/10000
@@ -702,7 +711,7 @@ class AnonymityLossCoefficient:
         return prc_atk
 
 
-def select_evenly_distributed_values(sorted_list):
+def _select_evenly_distributed_values(sorted_list):
     '''
     This limits the number of values in the list to 10 values, evenly distributed
     '''
@@ -715,3 +724,51 @@ def select_evenly_distributed_values(sorted_list):
         selected_values.append(sorted_list[index])
     selected_values.append(sorted_list[-1])
     return selected_values
+
+
+def _get_base_subset(df_base: pd.DataFrame, num_predictions: int) -> pd.DataFrame:
+    """
+    Returns a subset of df_base with num_rows rows, where num_rows is as close as possible
+    to num_predictions while satisfying the following constraints:
+    1. The row at index num_rows-1 has a different base_confidence value than the row at index num_rows.
+    2. num_rows must not be zero.
+
+    Args:
+        df_base (pd.DataFrame): The input DataFrame, sorted by 'base_confidence' in descending order.
+        num_predictions (int): The target number of rows to include in the subset.
+
+    Returns:
+        pd.DataFrame: A subset of df_base with num_rows rows.
+    """
+    # Ensure num_predictions is valid
+    if num_predictions <= 0:
+        raise ValueError("num_predictions must be greater than 0.")
+    if num_predictions > len(df_base):
+        raise ValueError("num_predictions must be no more than the length of df_base.")
+
+    # Get the unique base_confidence values
+    unique_confidences = df_base['base_confidence'].unique()
+
+    # Initialize variables to track the closest cut-point
+    cumulative_count = 0
+    previous_count = 0
+    num_rows = 0
+
+    # Iterate through unique confidence values to find the closest cut-point
+    for confidence in unique_confidences:
+        # Count rows with the current confidence value
+        count = (df_base['base_confidence'] == confidence).sum()
+        previous_count = cumulative_count
+        cumulative_count += count
+
+        # Check if we've reached or exceeded num_predictions
+        if cumulative_count >= num_predictions:
+            # Decide whether to use the previous cut-point or the current one
+            if (abs(previous_count - num_predictions) <= abs(cumulative_count - num_predictions)) and previous_count != 0:
+                num_rows = previous_count
+            else:
+                num_rows = cumulative_count
+            break
+
+    # Return the subset of df_base
+    return df_base.head(num_rows)
