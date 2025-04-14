@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='anonymity_loss_coefficient',
-    version='1.0.3',
+    version='1.0.4',
     description='A package to calculate the anonymity loss coefficient (ALC).',
     author='Paul Francis',
     author_email='paul@francis.com',
