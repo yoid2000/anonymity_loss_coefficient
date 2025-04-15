@@ -108,8 +108,15 @@ def _plot_alc(df: pd.DataFrame,
              file_path: str) -> None:
     df = df.copy()
     df['alc'] = df['alc'].apply(lambda x: max(x, -3.0))
+
+    # Determine the number of unique categories in the y-axis (secret_column)
+    num_categories = df['secret_column'].nunique()
     
-    plt.figure(figsize=(6, 4))
+    # Dynamically adjust the figure height based on the number of categories
+    figure_height = max(2, num_categories * 0.2)
+    
+    plt.figure(figsize=(6, figure_height))
+
     sns.boxplot(data=df, x='alc', y='secret_column', orient='h')
     
     low_alc = df['alc'].min()

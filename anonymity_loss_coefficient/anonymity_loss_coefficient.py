@@ -41,7 +41,10 @@ class DataFiles:
 
         # Find numeric columns with more than disc_max unique values in df_orig
         numeric_cols = self.orig.select_dtypes(include=[np.number]).columns
-        self.columns_for_discretization = [col for col in numeric_cols if self.orig[col].nunique() > self.disc_max]
+        self.columns_for_discretization = [
+            col for col in numeric_cols 
+            if self.orig[col].dtype == 'float64' or self.orig[col].dtype == 'float32' or self.orig[col].nunique() > self.disc_max
+        ]
         self.new_discretized_columns = [f"{col}__discretized" for col in self.columns_for_discretization]
 
         # Determine the min and max values for each column to discretize from all DataFrames
@@ -506,19 +509,17 @@ class PredictionResults:
                    predicted_value: Any,
                    true_value: Any,
                    base_confidence: float = None,
-                   attack_confidence: float = None,
                    ) -> None:
-        self.add_result('base', known_columns, secret_col, predicted_value, true_value, base_confidence, attack_confidence)
+        self.add_result('base', known_columns, secret_col, predicted_value, true_value, base_confidence, None)
 
     def add_attack_result(self,
                    known_columns: List[str],
                    secret_col: str,
                    predicted_value: Any,
                    true_value: Any,
-                   base_confidence: float = None,
                    attack_confidence: float = None,
                    ) -> None:
-        self.add_result('attack', known_columns, secret_col, predicted_value, true_value, base_confidence, attack_confidence)
+        self.add_result('attack', known_columns, secret_col, predicted_value, true_value, None, attack_confidence)
 
     def check_for_ci_reset(self, known_columns: List[str], secret_col: str) -> None:
         if self.ci_secret != secret_col or self.ci_known_columns != known_columns:
@@ -574,9 +575,10 @@ class PredictionResults:
             'attack_confidence': attack_confidence,
         })
         confidence = base_confidence
-        if base_confidence is None:
+        if predict_type == 'attack':
             confidence = attack_confidence
         self.ci.add_prediction(prediction, confidence, predict_type)
+        # Aha! I can compute ALC bounds using the high_ci_attack and low_ci_base for the upper ALC bound, and using low_ci_attack and high_ci_base for the lower ALC bound. If the upper ALC bound is below 0.5, then I can quit. If the lower ALC bound is above, say, 0.8, then likewise I can quit. Something like that.
 
     def save_to_text(self, text_summary: str, file_name: str) -> None:
         save_path = os.path.join(self.results_path, file_name)
