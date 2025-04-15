@@ -185,7 +185,7 @@ class BaselinePredictor:
             base_confidence = None
         return prediction, base_confidence
 
-class ConfidenceInterval:
+class ScoreInterval:
     def __init__(self, measure: str = "wilson_score_interval",
                        confidence_level: float = 0.95) -> None:
         if measure not in self.valid_measures():
@@ -196,6 +196,7 @@ class ConfidenceInterval:
         self.confidence_level = confidence_level
         self.df_base = pd.DataFrame(columns=['prediction', 'base_confidence'])
         self.df_attack = pd.DataFrame(columns=['prediction', 'attack_confidence'])
+        self.alc = AnonymityLossCoefficient()
 
     def reset(self) -> None:
         self.df_base = pd.DataFrame(columns=['prediction', 'base_confidence'])
@@ -218,18 +219,7 @@ class ConfidenceInterval:
             new_row = pd.DataFrame({'prediction': [prediction], 'attack_confidence': [confidence]})
             self.df_attack = self._add_row(self.df_attack, new_row)
 
-    def get_confidence_intervals(self) -> Dict:
-        alc_scores = self.get_alc_scores(self.df_base, self.df_attack)
-        # get alc_score from alc_scores with the maximum 'alc'
-        max_alc = max(alc_scores, key=lambda x: x['alc'])
-        return {'base': {'prec': max_alc['base_prec_ci'],
-                         'ci_low': max_alc['base_ci_low'],
-                         'ci_high': max_alc['base_ci_high'],
-                         'n': max_alc['base_n']},
-                'attack': {'prec': max_alc['attack_prec_ci'],
-                           'ci_low': max_alc['attack_ci_low'],
-                           'ci_high': max_alc['attack_ci_high'],
-                           'n': max_alc['attack_n']}}
+
 
     def get_alc_scores(self, df_base: pd.DataFrame,
                              df_attack: pd.DataFrame,
@@ -239,7 +229,6 @@ class ConfidenceInterval:
         of interest (i.e. already grouped in some way).
         '''
         score_info = []
-        alc = AnonymityLossCoefficient()
         # sort df_base by base_confidence descending
         df_base = df_base.sort_values(by='base_confidence', ascending=False)
         atk_confs = sorted(df_attack['attack_confidence'].unique(), reverse=True)
@@ -251,38 +240,47 @@ class ConfidenceInterval:
             df_base_conf = _get_base_subset(df_base, num_predictions)
             # df_atk_conf and df_base_conf are the rows that pertain to the specific
             # prediction quality (confidence) of interest
-            base_prec_measured = df_base_conf['prediction'].mean()
+            base_prec_as_sampled = df_base_conf['prediction'].mean()
             base_recall = len(df_base_conf) / len(df_base)
-            attack_prec_measured = df_atk_conf['prediction'].mean()
+            attack_prec_as_sampled = df_atk_conf['prediction'].mean()
             attack_recall = len(df_atk_conf) / len(df_attack)
-            base_ci = None
-            attack_ci = None
+            base_si = None
+            attack_si = None
             base_low, base_high = self.compute_precision_interval(n = len(df_base_conf),
-                                                              precision = base_prec_measured)
-            base_ci = base_high - base_low
+                                                              precision = base_prec_as_sampled)
+            base_si = base_high - base_low
             attack_low, attack_high = self.compute_precision_interval(n = len(df_atk_conf),
-                                                              precision = attack_prec_measured)
-            attack_ci = attack_high - attack_low
-            alc_measured = alc.alc(p_base=base_prec_measured, r_base=base_recall, p_attack=attack_prec_measured, r_attack=attack_recall)
-            base_prec_ci = base_low + (base_ci/2)
-            attack_prec_ci = attack_low + (attack_ci/2)
-            alc_ci = alc.alc(p_base=base_prec_ci, r_base=base_recall, p_attack=attack_prec_ci, r_attack=attack_recall)
+                                                              precision = attack_prec_as_sampled)
+            attack_si = attack_high - attack_low
+            alc_as_sampled = self.alc.alc(p_base=base_prec_as_sampled, r_base=base_recall, p_attack=attack_prec_as_sampled, r_attack=attack_recall)
+            base_prec = base_low + (base_si/2)
+            attack_prec = attack_low + (attack_si/2)
+            # The lower bound uses the si_low of the attack and si_high of the base
+            alc_low = self.alc.alc(p_base=base_high, r_base=base_recall,
+                                p_attack=attack_low, r_attack=attack_recall)
+            # The upper bound is the reverse
+            alc_high = self.alc.alc(p_base=base_low, r_base=base_recall,
+                                p_attack=attack_high, r_attack=attack_recall)
+            alc = self.alc.alc(p_base=base_prec, r_base=base_recall,
+                                p_attack=attack_prec, r_attack=attack_recall)
             score_info.append({
                 'base_recall': base_recall,
                 'attack_recall': attack_recall,
-                'base_prec_ci': base_prec_ci,
-                'attack_prec_ci': attack_prec_ci,
-                'alc': alc_ci,
-                'base_prec_measured': base_prec_measured,
-                'attack_prec_measured': attack_prec_measured,
-                'alc_measured': alc_measured,
-                'base_ci': base_ci,
-                'base_ci_low': base_low,
-                'base_ci_high': base_high,
+                'base_prec': base_prec,
+                'attack_prec': attack_prec,
+                'alc': alc,
+                'base_prec_as_sampled': base_prec_as_sampled,
+                'attack_prec_as_sampled': attack_prec_as_sampled,
+                'alc_as_sampled': alc_as_sampled,
+                'alc_low': alc_low,
+                'alc_high': alc_high,
+                'base_si': base_si,
+                'base_si_low': base_low,
+                'base_si_high': base_high,
                 'base_n': len(df_base_conf),
-                'attack_ci': attack_ci,
-                'attack_ci_low': attack_low,
-                'attack_ci_high': attack_high,
+                'attack_si': attack_si,
+                'attack_si_low': attack_low,
+                'attack_si_high': attack_high,
                 'attack_n': len(df_atk_conf),
             })
         return score_info
@@ -319,23 +317,30 @@ class PredictionResults:
                        strong_thresh: float = 0.5,
                        risk_thresh: float = 0.7,
                        attack_name: str = '',
-                       ci_type: str = 'wilson_score_interval',
-                       ci_confidence: float = 0.95) -> None:
+                       si_type: str = 'wilson_score_interval',
+                       si_confidence: float = 0.95,
+                       halt_thresh_low = 0.4,
+                       halt_thresh_high = 0.9,
+                       halt_interval_thresh = 0.1,
+                       ) -> None:
         self.strong_thresh = strong_thresh
         self.risk_thresh = risk_thresh
+        self.halt_thresh_low = halt_thresh_low
+        self.halt_thresh_high = halt_thresh_high
+        self.halt_interval_thresh = halt_interval_thresh
         self.results_path = results_path
         self.attack_name = attack_name
-        self.ci_confidence = ci_confidence
-        self.ci_type = ci_type
+        self.si_confidence = si_confidence
+        self.si_type = si_type
         self.summary_path_csv = None
         if self.results_path is not None:
             os.makedirs(self.results_path, exist_ok=True)
         self.all_known_columns = []
         self.all_secret_columns = []
         self.results = []
-        self.ci = ConfidenceInterval()
-        self.ci_secret = ''
-        self.ci_known_columns = []
+        self.si = ScoreInterval()
+        self.si_secret = ''
+        self.si_known_columns = []
         self.df_secret_known_results = None
         self.df_secret_results = None
         self.df_results = None
@@ -374,29 +379,12 @@ class PredictionResults:
             attack_group = group[group['predict_type'] == 'attack']
             base_count = len(base_group)
             attack_count = len(attack_group)
-            score_info = self.ci.get_alc_scores(base_group, attack_group)
+            score_info = self.si.get_alc_scores(base_group, attack_group)
             for score in score_info:
-                rows.append({
-                    'secret_column': secret_col,
-                    'base_recall': score['base_recall'],
-                    'attack_recall': score['attack_recall'],
-                    'base_prec_ci': score['base_prec_ci'],
-                    'attack_prec_ci': score['attack_prec_ci'],
-                    'alc': score['alc'],
-                    'base_prec_measured': score['base_prec_measured'],
-                    'attack_prec_measured': score['attack_prec_measured'],
-                    'alc_measured': score['alc_measured'],
-                    'base_count': base_count,
-                    'attack_count': attack_count,
-                    'base_ci': score['base_ci'],
-                    'base_ci_low': score['base_ci_low'],
-                    'base_ci_high': score['base_ci_high'],
-                    'base_n': score['base_n'],
-                    'attack_ci': score['attack_ci'],
-                    'attack_ci_low': score['attack_ci_low'],
-                    'attack_ci_high': score['attack_ci_high'],
-                    'attack_n': score['attack_n'],
-                })
+                score['secret_column'] = secret_col
+                score['base_count'] = base_count
+                score['attack_count'] = attack_count
+                rows.append(score)
         self.df_secret_results = pd.DataFrame(rows)
     
     def alc_per_secret_and_known_df(self,
@@ -422,32 +410,16 @@ class PredictionResults:
             base_count = len(base_group)
             attack_count = len(attack_group)
             num_known_columns = group['num_known_columns'].iloc[0]
-            score_info = self.ci.get_alc_scores(base_group, attack_group)
+            score_info = self.si.get_alc_scores(base_group, attack_group)
             for score in score_info:
-                rows.append({
-                    'secret_column': secret_col,
-                    'known_columns': known_columns,
-                    'num_known_columns': num_known_columns,
-                    'base_recall': score['base_recall'],
-                    'attack_recall': score['attack_recall'],
-                    'base_prec_ci': score['base_prec_ci'],
-                    'attack_prec_ci': score['attack_prec_ci'],
-                    'alc': score['alc'],
-                    'base_prec_measured': score['base_prec_measured'],
-                    'attack_prec_measured': score['attack_prec_measured'],
-                    'alc_measured': score['alc_measured'],
-                    'base_count': base_count,
-                    'attack_count': attack_count,
-                    'base_ci': score['base_ci'],
-                    'base_ci_low': score['base_ci_low'],
-                    'base_ci_high': score['base_ci_high'],
-                    'base_n': score['base_n'],
-                    'attack_ci': score['attack_ci'],
-                    'attack_ci_low': score['attack_ci_low'],
-                    'attack_ci_high': score['attack_ci_high'],
-                    'attack_n': score['attack_n'],
-                })
+                score['secret_column'] = secret_col
+                score['known_columns'] = known_columns
+                score['num_known_columns'] = num_known_columns
+                score['base_count'] = base_count
+                score['attack_count'] = attack_count
+                rows.append(score)
         self.df_secret_known_results = pd.DataFrame(rows)
+
 
     def _filter_df(self, df: pd.DataFrame,
                   known_columns: Optional[List[str]] = None,
@@ -521,15 +493,6 @@ class PredictionResults:
                    ) -> None:
         self.add_result('attack', known_columns, secret_col, predicted_value, true_value, None, attack_confidence)
 
-    def check_for_ci_reset(self, known_columns: List[str], secret_col: str) -> None:
-        if self.ci_secret != secret_col or self.ci_known_columns != known_columns:
-            self.ci_secret = secret_col
-            self.ci_known_columns = known_columns
-            self.ci.reset()
-    
-    def get_ci(self) -> Dict:
-        return self.ci.get_confidence_intervals()
-
     def add_result(self,
                    predict_type: str,
                    known_columns: List[str],
@@ -555,7 +518,7 @@ class PredictionResults:
                 self.all_known_columns.append(col)
         # sort known_columns
         known_columns = sorted(known_columns)
-        self.check_for_ci_reset(known_columns, secret_col)
+        self.check_for_si_reset(known_columns, secret_col)
         # Check if predicted_value is a numpy type
         if isinstance(predicted_value, np.generic):
             predicted_value = predicted_value.item()
@@ -577,8 +540,36 @@ class PredictionResults:
         confidence = base_confidence
         if predict_type == 'attack':
             confidence = attack_confidence
-        self.ci.add_prediction(prediction, confidence, predict_type)
-        # Aha! I can compute ALC bounds using the high_ci_attack and low_ci_base for the upper ALC bound, and using low_ci_attack and high_ci_base for the lower ALC bound. If the upper ALC bound is below 0.5, then I can quit. If the lower ALC bound is above, say, 0.8, then likewise I can quit. Something like that.
+        self.si.add_prediction(prediction, confidence, predict_type)
+
+    def check_for_si_reset(self, known_columns: List[str], secret_col: str) -> None:
+        if self.si_secret != secret_col or self.si_known_columns != known_columns:
+            self.si_secret = secret_col
+            self.si_known_columns = known_columns
+            self.si.reset()
+
+    def ok_to_halt(self) -> Tuple[bool, Optional[Dict], str]:
+        if len(self.si.df_base) < 10 or len(self.si.df_attack) < 10:
+            return False, None, 'not enough samples'
+        alc_scores = self.si.get_alc_scores(self.si.df_base, self.si.df_attack)
+        # get alc_score from alc_scores with the maximum 'alc'
+        max_alc = max(alc_scores, key=lambda x: x['alc'])
+        ret = {'alc_low': max_alc['alc_low'],
+               'alc_high': max_alc['alc_high'],
+               'alc': max_alc['alc'],
+               'attack_si': max_alc['attack_si'],
+               'base_si': max_alc['base_si']}
+        if ret['alc_high'] < self.halt_thresh_low:
+            return True, ret, 'alc extremely low'
+        if ret['alc_low'] > self.halt_thresh_high:
+            return True, ret, 'alc extremely high'
+        if ret['alc_high'] - ret['alc_low'] < self.halt_interval_thresh:
+            # The ALC score interval is small enough that we can stop
+            return True, ret, 'alc within bounds'
+        if (max_alc['attack_si'] <= self.halt_interval_thresh and 
+            max_alc['base_si'] <= self.halt_interval_thresh):
+            return True, ret, 'attack and base precision interval within bounds'
+        return False, ret, 'halt conditions not met'
 
     def save_to_text(self, text_summary: str, file_name: str) -> None:
         save_path = os.path.join(self.results_path, file_name)

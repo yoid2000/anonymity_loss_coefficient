@@ -33,7 +33,7 @@ def _plot_alc_prec(df: pd.DataFrame,
     # set any 'alc' values less than -3.0 to -3.0
     df['alc'] = df['alc'].apply(lambda x: max(x, -3.0))
     plt.figure(figsize=(6, 4))
-    scatter = sns.scatterplot(data=df, x='attack_prec_ci', y='alc', hue='attack_recall', palette='viridis', legend=False)
+    scatter = sns.scatterplot(data=df, x='attack_prec', y='alc', hue='attack_recall', palette='viridis', legend=False)
     low_alc = df['alc'].min()
     lower_ylim = min(-0.05, low_alc)
     plt.ylim(lower_ylim, 1.05)
@@ -141,7 +141,7 @@ def _plot_alc(df: pd.DataFrame,
 def print_example_attack(df: pd.DataFrame) -> None:
     string = ''
     for _, row in df.iterrows():
-        string += f"ALC: {round(row['alc'],2)}, base (prec: {round(row['base_prec_ci'],2)}, recall: {round(row['base_recall'],2)}), attack (prec: {round(row['attack_prec_ci'],2)}, recall: {round(row['attack_recall'],2)})\n"
+        string += f"ALC: {round(row['alc'],2)}, base (prec: {round(row['base_prec'],2)}, recall: {round(row['base_recall'],2)}), attack (prec: {round(row['attack_prec'],2)}, recall: {round(row['attack_recall'],2)})\n"
         string +=f"    Secret: {row['secret_column']}, Known: {row['known_columns']}\n"
     return string
 

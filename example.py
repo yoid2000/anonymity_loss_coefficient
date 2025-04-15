@@ -88,31 +88,22 @@ def run_predictions_loop(adf: DataFiles,
                          base_pred: BaselinePredictor,
                          pred_res: PredictionResults,
                          secret_col: str, known_columns: List[str],
-                         df_base_in: pd.DataFrame, df_atk_in: pd.DataFrame) -> None:
-    # Shuffle df_base and df_atk to avoid any bias over multiple attacks
-    df_base = df_base_in.sample(frac=1).reset_index(drop=True)
+                         df_cntl_in: pd.DataFrame, df_atk_in: pd.DataFrame) -> None:
+    # Shuffle df_cntl and df_atk to avoid any bias over multiple attacks
+    df_cntl = df_cntl_in.sample(frac=1).reset_index(drop=True)
     df_atk = df_atk_in.sample(frac=1).reset_index(drop=True)
-    confidence_interval_tolerance = 0.1
-    for i in range(min(len(df_base), len(df_atk))):
+    for i in range(len(df_cntl)):
         # Get one base and attack measure at a time, and continue until we have
         # enough confidence in the results
-        base_row_df = df_base.iloc[[i]]
-        base_prediction(adf, base_pred, pred_res, base_row_df, secret_col, known_columns)
+        atk_row_df = df_cntl.iloc[[i]]
+        base_prediction(adf, base_pred, pred_res, atk_row_df, secret_col, known_columns)
 
-        atk_row = df_atk.iloc[[i]]
-        attack_prediction(adf, pred_res, df_atk, atk_row, secret_col, known_columns)
+        attack_prediction(adf, pred_res, df_atk, atk_row_df, secret_col, known_columns)
 
-        if i >= 50 and i % 10 == 0:
-            # Check for confidence after every 50th attack prediction, then every 10 predictions
-            ci_info = pred_res.get_ci()
-            cii = ci_info['base']
-            if cii['ci_high'] - cii['ci_low'] <= confidence_interval_tolerance:
-                print(f"Base confidence interval ({round(cii['ci_low'],2)}, {round(cii['ci_high'],2)}) is within tolerance after {i+1} attacks on precision {round(cii['prec'],2)}")
-                return
-            cii = ci_info['attack']
-            if cii['ci_high'] - cii['ci_low'] <= confidence_interval_tolerance:
-                print(f"Attack confidence interval ({round(cii['ci_low'],2)}, {round(cii['ci_high'],2)}) is within tolerance after {i+1} attacks on precision {round(cii['prec'],2)}")
-                return
+        halt_ok, info, reason = pred_res.ok_to_halt()
+        if halt_ok:
+            print(f'\nOk to halt after {i} attacks with ALC {info['alc']:.2f} and reason: "{reason}"')
+            return
 
 def cb() -> str:
     print("```")
@@ -136,7 +127,7 @@ cb()
 print('Assume that 4 anonymized datasets have been generated from `df_initial`. Of course, this also works with only a single anonymized dataset. (The "anonymization" here is nothing more than swapping a small fraction of the values.)')
 syn_data = [anonymize_data(df_initial) for _ in range(4)]
 
-print("\nTo make baseline predictions, we need to separate out a control dataset from the initial raw data. Typically 1000 control rows is enough, though if the initial data is small, then the control dataset should be smaller (say 10% or 20% or the data).")
+print("\nTo make baseline predictions, we need to separate out a control dataset from the initial raw data. Typically 1000 control rows is enough, though if the initial data is small, then the control dataset should be smaller (say 10% or 20% or the data). The control dataset contains the individuals we will attack.")
 print('''
 ```
 df_control = df_initial.sample(1000)
@@ -158,8 +149,10 @@ cb()
 print(adf.orig.head())
 cb()
 
+print("\nNote in particular that the initial datasets df_original and syn_data are not used once the DataFiles object has been created. All subsequent operations are made on the processed dataframes in the DataFiles object (`adf.orig`, `adf.cntl`, and `adf.syn_list`).")
 
-print("\nThe `BaselinePredictor` class is used to make baseline predictions on categorical columns. Internally it uses `df_original` from the `DataFiles` class.")
+
+print("\nThe `BaselinePredictor` class is used to make baseline predictions on categorical columns. Internally it uses `adf.orig` from the `DataFiles` class.")
 
 print("\n`base_pred = BaselinePredictor(adf)`")
 base_pred = BaselinePredictor(adf)
@@ -175,17 +168,7 @@ pred_res = PredictionResults(results_path = "example",
 pred_res = PredictionResults(results_path = "example",
                              attack_name = "Example Attacks")
 
-print("\nNow lets run the attacks. An attack consists of a set of predictions on the value of a categorical column (the 'secret' column), assuming knowledge of the value of one or more other columns (the 'known columns'). We make two kinds of predictions, attack predictions and baseline predictions. An attack prediction is made on a row taken from the initial data over the anonymized data. A baseline prediction is made from a row taken from the control data over the original data. Note that, since the control row is not part of the original data, the prediction is privacy neutral.")
-
-print("\nWe want to make the same number of attack and baseline predictions. Let's set aside a some original rows, equal to the number of control rows, for the attack predictions. Note that we need to work only with the data that has been preprocessed by the DataFiles class. The preprocessed original, control, and synthetic dataframes can be accessed as adf.orig, adf.cntl, and adf.syn_list[i] respectively.")
-print('''
-```
-num_control_rows = len(adf.cntl)
-df_atk = adf.orig.sample(num_control_rows)
-```
-''')
-num_control_rows = len(adf.cntl)
-df_atk = adf.orig.sample(num_control_rows)
+print("\nNow lets run the attacks. An attack consists of a set of predictions on the value of a categorical column (the 'secret' column), assuming knowledge of the value of one or more other columns (the 'known columns'). We make two kinds of predictions, attack predictions and baseline predictions. An attack prediction is made on a row taken from the control data over the anonymized data. A baseline prediction is made from a row taken from the control data over the original data. Note that, since the control row is not part of the original data, the baseline prediction is privacy neutral.")
 
 print("\nTo keep this example simple, the attack itself is also naively simple. We combine the preprocessed anonymized dataframes into a single dataframe. We find the rows in the combined anonymized dataset whose values match the known columns of the attack row, if any, and predict that value that is most common among these rows. We then select the majority value of this set of values as our attack prediction. We also compute a 'confidence' associated with the prediction. In this case, our confidence will be the fraction of rows of the matching rows that contain the predicted value.")
 
@@ -244,9 +227,9 @@ print(df_per_comb_results.columns)
 cb()
 
 print("\nLet's look at the precision, recall, and ALC scores:")
-print("\n`df_per_comb_results[['base_prec_ci', 'base_recall', 'attack_prec_ci', 'attack_recall', 'alc']]`")
+print("\n`df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']]`")
 cb()
-print(df_per_comb_results[['base_prec_ci', 'base_recall', 'attack_prec_ci', 'attack_recall', 'alc']])
+print(df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
 cb()
 
 print("\nAs it so happens, there is no correlation between 't1' and 'i2' or 'f1'. As a result, the baseline precision is always quite low, and different recall values don't really help. By contrast, because our anonymity is weak, attack precision is high, and improves as recall is lower. This leads to a high ALC score, the highest at recall=0.75, showing that anonymity is indeed weak.")
@@ -261,7 +244,7 @@ run_predictions_loop(adf, base_pred, pred_res, secret_column,
 print("\nLet's look at the precision, recall, and ALC scores for the second attack:")
 df_per_comb_results = pred_res.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)
 cb()
-print(df_per_comb_results[['base_prec_ci', 'base_recall', 'attack_prec_ci', 'attack_recall', 'alc']])
+print(df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
 cb()
 
 print("\nHere we see quite a different story. Since 'i1' and 't1' are perfectly correlated, the baseline precision is always 1.0. Because of the anonymization, however, the attack precision, while pretty high (around 0.9), is not perfect. Because the attack precision is always less than the baseline precision, the ALC score is always negative, which translates to no anonymity loss whatsoever.")

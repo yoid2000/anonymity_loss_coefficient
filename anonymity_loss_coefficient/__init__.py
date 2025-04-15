@@ -3,5 +3,5 @@ from .anonymity_loss_coefficient import (
     DataFiles,
     BaselinePredictor,
     PredictionResults,
-    ConfidenceInterval,
+    ScoreInterval,
 )
