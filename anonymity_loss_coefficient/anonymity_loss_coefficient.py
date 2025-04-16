@@ -312,29 +312,34 @@ class ScoreInterval:
         return lower_bound, upper_bound
 
 
-class PredictionResults:
-    def __init__(self, results_path: str = None,
-                       strong_thresh: float = 0.5,
-                       risk_thresh: float = 0.7,
-                       attack_name: str = '',
+class ALCManager:
+    def __init__(self, df_original: pd.DataFrame,
+                       df_control: pd.DataFrame,
+                       df_synthetic: Union[pd.DataFrame, List[pd.DataFrame]],
+                       disc_max: int = 50,
+                       disc_bins: int = 20,
+                       discretize_in_place: bool = False,
                        si_type: str = 'wilson_score_interval',
                        si_confidence: float = 0.95,
                        halt_thresh_low = 0.4,
                        halt_thresh_high = 0.9,
                        halt_interval_thresh = 0.1,
                        ) -> None:
-        self.strong_thresh = strong_thresh
-        self.risk_thresh = risk_thresh
+        self.df = DataFiles(
+                 df_original=df_original,
+                 df_control=df_control,
+                 df_synthetic=df_synthetic,
+                 disc_max=disc_max,
+                 disc_bins=disc_bins,
+                 discretize_in_place=discretize_in_place,
+        )
+        self.base_pred = BaselinePredictor(self.df)
         self.halt_thresh_low = halt_thresh_low
         self.halt_thresh_high = halt_thresh_high
         self.halt_interval_thresh = halt_interval_thresh
-        self.results_path = results_path
-        self.attack_name = attack_name
         self.si_confidence = si_confidence
         self.si_type = si_type
         self.summary_path_csv = None
-        if self.results_path is not None:
-            os.makedirs(self.results_path, exist_ok=True)
         self.all_known_columns = []
         self.all_secret_columns = []
         self.results = []
@@ -435,45 +440,48 @@ class PredictionResults:
         return json.dumps(sorted(known_columns))
 
     def summarize_results(self,
+                          results_path: str,
+                          attack_name: str = '',
+                          strong_thresh: float = 0.5,
+                          risk_thresh: float = 0.7,
                           with_text: bool = True,
                           with_plot: bool = True) -> None:
-        if self.results_path is None:
-            raise ValueError("summarize_results called without a results_path")
+        os.makedirs(results_path, exist_ok=True)
         df = self.get_results_df()
-        self.save_to_csv(df, 'summary_raw.csv')
+        self.save_to_csv(results_path, df, 'summary_raw.csv')
         df_secret_known = self.alc_per_secret_and_known_df()
-        self.save_to_csv(df_secret_known, 'summary_secret_known.csv')
+        self.save_to_csv(results_path, df_secret_known, 'summary_secret_known.csv')
         df_secret = self.alc_per_secret_df()
-        self.save_to_csv(df_secret, 'summary_secret.csv')
+        self.save_to_csv(results_path, df_secret, 'summary_secret.csv')
         if with_text:
             text_summary = make_text_summary(df_secret_known,
-                                                self.strong_thresh,
-                                                self.risk_thresh,
+                                                strong_thresh,
+                                                risk_thresh,
                                                 self.all_secret_columns,
                                                 self.all_known_columns,
-                                                self.attack_name)
-            self.save_to_text(text_summary, 'summary.txt')
+                                                attack_name)
+            self.save_to_text(results_path, text_summary, 'summary.txt')
         if with_plot:
             plot_alc(df_secret_known,
-                        self.strong_thresh,
-                        self.risk_thresh,
-                        self.attack_name,
-                        os.path.join(self.results_path, 'alc_plot.png'))
+                        strong_thresh,
+                        risk_thresh,
+                        attack_name,
+                        os.path.join(results_path, 'alc_plot.png'))
             plot_alc_prec(df_secret_known,
-                        self.strong_thresh,
-                        self.risk_thresh,
-                        self.attack_name,
-                        os.path.join(self.results_path, 'alc_prec_plot.png'))
+                        strong_thresh,
+                        risk_thresh,
+                        attack_name,
+                        os.path.join(results_path, 'alc_prec_plot.png'))
             plot_alc_best(df_secret_known,
-                        self.strong_thresh,
-                        self.risk_thresh,
-                        self.attack_name,
-                        os.path.join(self.results_path, 'alc_plot_best.png'))
+                        strong_thresh,
+                        risk_thresh,
+                        attack_name,
+                        os.path.join(results_path, 'alc_plot_best.png'))
             plot_alc_prec_best(df_secret_known,
-                        self.strong_thresh,
-                        self.risk_thresh,
-                        self.attack_name,
-                        os.path.join(self.results_path, 'alc_prec_plot_best.png'))
+                        strong_thresh,
+                        risk_thresh,
+                        attack_name,
+                        os.path.join(results_path, 'alc_prec_plot_best.png'))
 
     def add_base_result(self,
                    known_columns: List[str],
@@ -571,8 +579,8 @@ class PredictionResults:
             return True, ret, 'attack and base precision interval within bounds'
         return False, ret, 'halt conditions not met'
 
-    def save_to_text(self, text_summary: str, file_name: str) -> None:
-        save_path = os.path.join(self.results_path, file_name)
+    def save_to_text(self, results_path: str, text_summary: str, file_name: str) -> None:
+        save_path = os.path.join(results_path, file_name)
         try:
             with open(save_path, 'w') as f:
                 f.write(text_summary)
@@ -581,14 +589,37 @@ class PredictionResults:
         except Exception as e:
             print(f"Error: Failed to write {save_path}: {e}")
 
-    def save_to_csv(self, df: pd.DataFrame, file_name: str) -> None:
-        save_path = os.path.join(self.results_path, file_name)
+    def save_to_csv(self, results_path, df: pd.DataFrame, file_name: str) -> None:
+        save_path = os.path.join(results_path, file_name)
         try:
             df.to_csv(save_path, index=False)
         except PermissionError:
             print(f"Warning: The file at {save_path} is currently open in another application. You might want to make a copy of the summary file in order to view it while the attack is still executing.")
         except Exception as e:
             print(f"Error: Failed to write {save_path}: {e}")
+    
+    # Following are the methods that use DataFiles
+    def get_pre_discretized_column(self, secret_column: str) -> str:
+        return self.df.get_pre_discretized_column(secret_column)
+
+    def get_discretized_column(self, secret_column: str) -> str:
+        return self.df.get_discretized_column(secret_column)
+
+    def decode_value(self, column: str, encoded_value: int) -> Any:
+        return self.df.decode_value(column, encoded_value)
+
+    def get_column_classification(self, column: str) -> str:
+        return self.df.get_column_classification(column)
+
+    def get_column_classification_dict(self) -> Dict:
+        return self.df.column_classification.copy()
+
+    # Following are the methods that use BasePredictor
+    def build_model(self, known_columns: List[str], secret_col: str,  random_state: Optional[int] = None) -> None:
+        return self.base_pred.build_model(known_columns, secret_col, random_state)
+
+    def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
+        return self.base_pred.predict(df_row)
 
 class AnonymityLossCoefficient:
     '''

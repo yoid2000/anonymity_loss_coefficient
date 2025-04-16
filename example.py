@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import List
-from anonymity_loss_coefficient import DataFiles, BaselinePredictor, PredictionResults
+from anonymity_loss_coefficient import ALCManager
 import pprint
 import warnings
 #warnings.filterwarnings('error')
@@ -20,7 +20,7 @@ def make_data(num_rows: int) -> pd.DataFrame:
     return df
 
 
-def attack_prediction(adf: DataFiles, pred_res: PredictionResults,
+def attack_prediction(alcm: ALCManager,
                       df_atk: pd.DataFrame,
                       row: pd.DataFrame,
                       secret_column: str,
@@ -41,12 +41,12 @@ def attack_prediction(adf: DataFiles, pred_res: PredictionResults,
             predicted_value = None
             mode_count = 0
         fraction = mode_count / len(matching_rows)
-        predicted_value = adf.decode_value(secret_column, predicted_value)
+        predicted_value = alcm.decode_value(secret_column, predicted_value)
 
-    pred_res.add_attack_result(known_columns = known_columns,
+    alcm.add_attack_result(known_columns = known_columns,
                                 secret_col = secret_column,
                                 predicted_value = predicted_value,
-                                true_value = adf.decode_value(secret_column, true_value),
+                                true_value = alcm.decode_value(secret_column, true_value),
                                 attack_confidence = fraction,
                                 )
 
@@ -69,38 +69,37 @@ def anonymize_data(df: pd.DataFrame) -> pd.DataFrame:
     
     return df_anonymized
 
-def base_prediction(adf: DataFiles, base_pred: BaselinePredictor, pred_res: PredictionResults,
+def base_prediction(alcm: ALCManager,
                     row: pd.DataFrame,
                     secret_col: str,
                     known_columns: List[str]) -> None:
     # get the prediction for the row
-    predicted_value, proba = base_pred.predict(row[known_columns])
+    predicted_value, proba = alcm.predict(row[known_columns])
     true_value = row[secret_col].iloc[0]
     # We decode the encoded values for later inspection of the attack results
-    pred_res.add_base_result(known_columns = known_columns,
+    alcm.add_base_result(known_columns = known_columns,
                              secret_col = secret_col,
-                             predicted_value = adf.decode_value(secret_col, predicted_value),
-                             true_value = adf.decode_value(secret_col, true_value),
+                             predicted_value = alcm.decode_value(secret_col, predicted_value),
+                             true_value = alcm.decode_value(secret_col, true_value),
                              base_confidence = proba,
                             )
 
-def run_predictions_loop(adf: DataFiles,
-                         base_pred: BaselinePredictor,
-                         pred_res: PredictionResults,
-                         secret_col: str, known_columns: List[str],
-                         df_cntl_in: pd.DataFrame, df_atk_in: pd.DataFrame) -> None:
+def run_predictions_loop(alcm: ALCManager,
+                         secret_col: str, 
+                         known_columns: List[str],
+                         df_atk_in: pd.DataFrame) -> None:
     # Shuffle df_cntl and df_atk to avoid any bias over multiple attacks
-    df_cntl = df_cntl_in.sample(frac=1).reset_index(drop=True)
+    df_cntl = alcm.df.cntl.sample(frac=1).reset_index(drop=True)
     df_atk = df_atk_in.sample(frac=1).reset_index(drop=True)
     for i in range(len(df_cntl)):
         # Get one base and attack measure at a time, and continue until we have
         # enough confidence in the results
         atk_row_df = df_cntl.iloc[[i]]
-        base_prediction(adf, base_pred, pred_res, atk_row_df, secret_col, known_columns)
+        base_prediction(alcm, atk_row_df, secret_col, known_columns)
 
-        attack_prediction(adf, pred_res, df_atk, atk_row_df, secret_col, known_columns)
+        attack_prediction(alcm, df_atk, atk_row_df, secret_col, known_columns)
 
-        halt_ok, info, reason = pred_res.ok_to_halt()
+        halt_ok, info, reason = alcm.ok_to_halt()
         if halt_ok:
             print(f'\nOk to halt after {i} attacks with ALC {info['alc']:.2f} and reason: "{reason}"')
             return
@@ -140,71 +139,55 @@ print(f"`df_control` has {len(df_control)} randomly sampled rows from `df_initia
 print(f"`df_original` has the remaining {len(df_original)} rows.")
 
 print("\nAt this point, we have prepared the dataframes needed for the ALC measures.")
-print("\nThe DataFiles class is used primarily to preprocess the data. It removes NaN rows, discretizes continuous variables, and encodes non-integer columns as integers. Note in particular that, unless the optional parameter `discertize_in_place` is set to True, the DataFiles class creates a new column for each discretized column, given the name `colname__discretized`. The original column is also kept. The discretized column should be used for the secret column, while the original column should be used for the known column.")
-print("\n`adf = DataFiles(df_original, df_control, syn_data)`")
-adf = DataFiles(df_original, df_control, syn_data)
+print("\nThe ALCManager class is used for all operations. It prepares the data, runs the baseline model, holds the various predictions, computes the ALC measures, and writes the results to files.\n" \
+"\nTo prepare the data, it removes NaN rows, discretizes continuous variables, and encodes non-integer columns as integers. Note in particular that, unless the optional parameter `discertize_in_place` is set to True, it creates a new column for each discretized column, given the name `colname__discretized`. The original column is also kept. The discretized column should be used for the secret column, while the original column should be used for the known column.")
+print('''\n`alcm = ALCManager(df_original, df_control, syn_data)`''')
+alcm = ALCManager(df_original, df_control, syn_data)
 print("\nWe see for instance that the text column 't1' has been encoded as integers, and two discretized columns have been created from the continuous columns:")
-print("\n`adf.orig.head()`")
+print("\n`alcm.df.orig.head()`")
 cb()
-print(adf.orig.head())
+print(alcm.df.orig.head())
 cb()
 
-print("\nNote in particular that the initial datasets df_original and syn_data are not used once the DataFiles object has been created. All subsequent operations are made on the processed dataframes in the DataFiles object (`adf.orig`, `adf.cntl`, and `adf.syn_list`).")
+print("\nNote in particular that the initial df_original and syn_data dataframes are not used once the ALCManager object has been created. All subsequent operations are made on the processed dataframes in the ALCManager object (`alcm.df.orig`, `alcm.df.cntl`, and `alcm.df.syn_list`).")
 
-
-print("\nThe `BaselinePredictor` class is used to make baseline predictions on categorical columns. Internally it uses `adf.orig` from the `DataFiles` class.")
-
-print("\n`base_pred = BaselinePredictor(adf)`")
-base_pred = BaselinePredictor(adf)
-
-print("\nThe PredictionResults class is a helper class that stores the results of the predictions, and provides methods that summarize the precision, recall, and ALC scores.")
-
-print('''
-```
-pred_res = PredictionResults(results_path = "example",
-                             attack_name = "Example Attacks")
-```
-''')
-pred_res = PredictionResults(results_path = "example",
-                             attack_name = "Example Attacks")
 
 print("\nNow lets run the attacks. An attack consists of a set of predictions on the value of a categorical column (the 'secret' column), assuming knowledge of the value of one or more other columns (the 'known columns'). We make two kinds of predictions, attack predictions and baseline predictions. An attack prediction is made on a row taken from the control data over the anonymized data. A baseline prediction is made from a row taken from the control data over the original data. Note that, since the control row is not part of the original data, the baseline prediction is privacy neutral.")
 
 print("\nTo keep this example simple, the attack itself is also naively simple. We combine the preprocessed anonymized dataframes into a single dataframe. We find the rows in the combined anonymized dataset whose values match the known columns of the attack row, if any, and predict that value that is most common among these rows. We then select the majority value of this set of values as our attack prediction. We also compute a 'confidence' associated with the prediction. In this case, our confidence will be the fraction of rows of the matching rows that contain the predicted value.")
 
 # df_anon is our combined anonymized dataset
-df_anon = pd.concat(adf.syn_list, ignore_index=True)
+df_anon = pd.concat(alcm.df.syn_list, ignore_index=True)
 
 print("\nIn a first attack, let's assume that the attacker knows the values of column 'i2' and 'f1', and wants to predict the value of column 't1'.")
 print('''
 ```
 known_columns = ['i2', 'f1']
-secret_column = adf.get_discretized_column('t1')
+secret_column = alcm.get_discretized_column('t1')
 ```
 ''')
 known_columns = ['i2', 'f1']
-secret_column = adf.get_discretized_column('t1')
+secret_column = alcm.get_discretized_column('t1')
 
 print("\nNote the use of the `get_discretized_column` method.  This produces the column name of the discretized column, if any. If none, it returns the original column name (which is the case here).")
 
 print("\nFor the baseline predictions, we need to make a model from the original data.")
 
-print("\n`base_pred.build_model(known_columns, secret_column)`")
-base_pred.build_model(known_columns, secret_column)
+print("\n`alcm.build_model(known_columns, secret_column)`")
+alcm.build_model(known_columns, secret_column)
 
-print("\nRun the predictions loop. There is the question of how many predictions to make in order to get a statistically significant result. To avoid doing more work than necessary, pred_res can calculate confidence intervals over the set of predictions made so far.")
+print("\nRun the predictions loop. There is the question of how many predictions to make in order to get a statistically significant result. To avoid doing more work than necessary, the ALCManager can calculate confidence intervals over the set of predictions made so far.")
 
-run_predictions_loop(adf, base_pred, pred_res, secret_column,
-                     known_columns, adf.cntl, df_anon)
+run_predictions_loop(alcm, secret_column, known_columns, df_anon)
 
 print("\nAfter the predictions loop, we can get a dataframe listing every prediction. Here is an example of a row for an attack prediction:")
 print('''
 ```
-df_results = pred_res.get_results_df()
+df_results = alcm.get_results_df()
 print(df_results[df_results['predict_type'] == 'attack'].iloc[0])
 ```
 ''')
-df_results = pred_res.get_results_df()
+df_results = alcm.get_results_df()
 cb()
 print(df_results[df_results['predict_type'] == 'attack'].iloc[0])
 cb()
@@ -217,8 +200,8 @@ print(df_results['attack_confidence'].unique())
 cb()
 
 print("\nThe PredictionResults class can compute the precision, recall, and ALC for each combination of known columns and secret column. When there are multiple confidence levels, the PredictionResults class computes the ALC for different recall values starting with only the highest confidence predictions (low recall), and working through lower confidence predictions.")
-print("\n`df_per_comb_results = pred_res.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)`")
-df_per_comb_results = pred_res.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)
+print("\n`df_per_comb_results = alcm.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)`")
+df_per_comb_results = alcm.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)
 
 print("\nIn total, here are the columns produced by the alc_per_secret_and_known_df method:")
 print("\n`df_per_comb_results.columns`")
@@ -236,13 +219,12 @@ print("\nAs it so happens, there is no correlation between 't1' and 'i2' or 'f1'
 
 print("\nLet's run a second attack, here assuming that the attacker knows the value of column 'i1' and wants to predict the value of column 't1'.")
 known_columns = ['i1']
-secret_column = adf.get_discretized_column('t1')
-base_pred.build_model(known_columns, secret_column)
-run_predictions_loop(adf, base_pred, pred_res, secret_column,
-                     known_columns, adf.cntl, df_anon)
+secret_column = alcm.get_discretized_column('t1')
+alcm.build_model(known_columns, secret_column)
+run_predictions_loop(alcm, secret_column, known_columns, df_anon)
 
 print("\nLet's look at the precision, recall, and ALC scores for the second attack:")
-df_per_comb_results = pred_res.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)
+df_per_comb_results = alcm.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)
 cb()
 print(df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
 cb()
@@ -251,8 +233,8 @@ print("\nHere we see quite a different story. Since 'i1' and 't1' are perfectly 
 
 print("\nFinally, we can get a summary of the ALC scores for all attacks. This is placed in a directory with the name originally conveyed to the PredictionResults class `results_path` variable. In our case, 'example'.")
 
-print("\n`pred_res.summarize_results()`")
-pred_res.summarize_results()
+print('''\n`alcm.summarize_results(results_path = "example", attack_name = "Example Attacks")`''')
+alcm.summarize_results(results_path = "example", attack_name = "Example Attacks")
 
 print('''
 This produces the following files:
@@ -261,5 +243,5 @@ This produces the following files:
 * summary_secret_known.csv: The precision, recall, and ALC scores for predictions grouped by secret column and known columns
 * summary.txt: A descriptive summary of the results
 
-Note finally that, if there are enough attacks to warrant it, `pred_res.summarize_results()` generates several plots as well.
+Note finally that, if there are enough attacks to warrant it, `alcm.summarize_results()` generates several plots as well.
 ''')
