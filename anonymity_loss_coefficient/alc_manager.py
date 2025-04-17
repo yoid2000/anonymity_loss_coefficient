@@ -11,26 +11,26 @@ from .score_interval import ScoreInterval
 
 class ALCManager:
     def __init__(self, df_original: pd.DataFrame,
-                       df_control: pd.DataFrame,
                        df_synthetic: Union[pd.DataFrame, List[pd.DataFrame]],
                        disc_max: int = 50,
                        disc_bins: int = 20,
                        discretize_in_place: bool = False,
                        si_type: str = 'wilson_score_interval',
                        si_confidence: float = 0.95,
+                       max_score_interval: float = 0.5,
                        halt_thresh_low = 0.4,
                        halt_thresh_high = 0.9,
                        halt_interval_thresh = 0.1,
                        ) -> None:
         self.df = DataFiles(
                  df_original=df_original,
-                 df_control=df_control,
                  df_synthetic=df_synthetic,
                  disc_max=disc_max,
                  disc_bins=disc_bins,
                  discretize_in_place=discretize_in_place,
         )
-        self.base_pred = BaselinePredictor(self.df.orig)
+        self.base_pred = BaselinePredictor()
+        self.max_score_interval = max_score_interval
         self.halt_thresh_low = halt_thresh_low
         self.halt_thresh_high = halt_thresh_high
         self.halt_interval_thresh = halt_interval_thresh
@@ -81,7 +81,7 @@ class ALCManager:
             attack_group = group[group['predict_type'] == 'attack']
             base_count = len(base_group)
             attack_count = len(attack_group)
-            score_info = self.si.get_alc_scores(base_group, attack_group)
+            score_info = self.si.get_alc_scores(base_group, attack_group, max_score_interval=self.max_score_interval)
             for score in score_info:
                 score['secret_column'] = secret_col
                 score['base_count'] = base_count
@@ -112,7 +112,7 @@ class ALCManager:
             base_count = len(base_group)
             attack_count = len(attack_group)
             num_known_columns = group['num_known_columns'].iloc[0]
-            score_info = self.si.get_alc_scores(base_group, attack_group)
+            score_info = self.si.get_alc_scores(base_group, attack_group, max_score_interval=self.max_score_interval)
             for score in score_info:
                 score['secret_column'] = secret_col
                 score['known_columns'] = known_columns
@@ -256,21 +256,22 @@ class ALCManager:
     def ok_to_halt(self) -> Tuple[bool, Optional[Dict], str]:
         if len(self.si.df_base) < 10 or len(self.si.df_attack) < 10:
             return False, None, 'not enough samples'
-        alc_scores = self.si.get_alc_scores(self.si.df_base, self.si.df_attack)
-        # get alc_score from alc_scores with the maximum 'alc'
-        max_alc = max(alc_scores, key=lambda x: x['alc'])
-        ret = {'alc_low': max_alc['alc_low'],
-               'alc_high': max_alc['alc_high'],
-               'alc': max_alc['alc'],
-               'attack_si': max_alc['attack_si'],
-               'base_si': max_alc['base_si']}
+        alc_scores = self.si.get_alc_scores(self.si.df_base, self.si.df_attack, max_score_interval=self.max_score_interval)
+        if len(alc_scores) == 0:
+            return False, None, f'no alc scores with attack_si and base_si < {self.max_score_interval}'
+        # sort alc_scores by 'alc' descending
+        alc_scores.sort(key=lambda x: x['alc'], reverse=True)
+        max_alc = alc_scores[0]
+        ret = {'alc_low': float(round(max_alc['alc_low'], 3)),
+               'alc_high': float(round(max_alc['alc_high'], 3)),
+               'alc': float(round(max_alc['alc'], 3)),
+               'attack_si': float(round(max_alc['attack_si'], 3)),
+               'base_si': float(round(max_alc['base_si'], 3))}
+        #print(ret)
         if ret['alc_high'] < self.halt_thresh_low:
             return True, ret, 'alc extremely low'
         if ret['alc_low'] > self.halt_thresh_high:
             return True, ret, 'alc extremely high'
-        if ret['alc_high'] - ret['alc_low'] < self.halt_interval_thresh:
-            # The ALC score interval is small enough that we can stop
-            return True, ret, 'alc within bounds'
         if (max_alc['attack_si'] <= self.halt_interval_thresh and 
             max_alc['base_si'] <= self.halt_interval_thresh):
             return True, ret, 'attack and base precision interval within bounds'
@@ -311,9 +312,19 @@ class ALCManager:
     def get_column_classification_dict(self) -> Dict:
         return self.df.column_classification.copy()
 
-    # Following are the methods that use BasePredictor
-    def build_model(self, known_columns: List[str], secret_col: str,  random_state: Optional[int] = None) -> None:
-        return self.base_pred.build_model(known_columns, secret_col, random_state)
+    # Following are the methods that use BasePredictor 
+    def init_cntl_and_build_model(self, known_columns: List[str], secret_col: str,  random_state: Optional[int] = None) -> None:
+        is_assigned = self.df.assign_first_cntl_block()
+        if is_assigned is False:
+            raise ValueError("Error: Control block initialization failed")
+        self.base_pred.build_model(self.df.orig, known_columns, secret_col, random_state)
+
+    def next_cntl_and_build_model(self) -> bool:
+        is_assigned = self.df.assign_next_cntl_block()
+        if is_assigned is False:
+            return False
+        self.base_pred.build_model(self.df.orig)
+        return True
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
         return self.base_pred.predict(df_row)

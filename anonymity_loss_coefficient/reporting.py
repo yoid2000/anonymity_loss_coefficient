@@ -33,6 +33,8 @@ def _plot_alc_prec(df: pd.DataFrame,
     # set any 'alc' values less than -3.0 to -3.0
     df['alc'] = df['alc'].apply(lambda x: max(x, -3.0))
     plt.figure(figsize=(6, 4))
+    # sort the dataframe by 'attack_recall' ascending
+    df = df.sort_values(by='attack_recall', ascending=True).reset_index(drop=True)
     scatter = sns.scatterplot(data=df, x='attack_prec', y='alc', hue='attack_recall', palette='viridis', legend=False)
     low_alc = df['alc'].min()
     lower_ylim = min(-0.05, low_alc)

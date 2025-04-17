@@ -110,46 +110,34 @@ def cb() -> str:
 pp = pprint.PrettyPrinter(indent=4)
 np.random.seed(42)
 
-print("Assume that `df_initial` is the initial raw data that we want to measure")
-df_initial = make_data(10000)
-print(f"The initial data has {len(df_initial)} rows. Here are the first 5 rows:")
-print("\n`df_initial.head()`")
+print("Assume that `df_original` is the original raw data that we want to measure")
+df_original = make_data(10000)
+print(f"The original data has {len(df_original)} rows. Here are the first 5 rows:")
+print("\n`df_original.head()`")
 cb()
-print(df_initial.head())
+print(df_original.head())
 cb()
 print(f"and here are some summary statistics:")
-print("\n`df_initial.describe()`")
+print("\n`df_original.describe()`")
 cb()
-print(df_initial.describe())
+print(df_original.describe())
 cb()
 
-print('Assume that 4 anonymized datasets have been generated from `df_initial`. Of course, this also works with only a single anonymized dataset. (The "anonymization" here is nothing more than swapping a small fraction of the values.)')
-syn_data = [anonymize_data(df_initial) for _ in range(4)]
-
-print("\nTo make baseline predictions, we need to separate out a control dataset from the initial raw data. Typically 1000 control rows is enough, though if the initial data is small, then the control dataset should be smaller (say 10% or 20% or the data). The control dataset contains the individuals we will attack.")
-print('''
-```
-df_control = df_initial.sample(1000)
-df_original = df_initial.drop(df_control.index)
-```
-''')
-df_control = df_initial.sample(1000)
-df_original = df_initial.drop(df_control.index)
-print(f"`df_control` has {len(df_control)} randomly sampled rows from `df_initial`.")
-print(f"`df_original` has the remaining {len(df_original)} rows.")
+print('Assume that 4 anonymized datasets have been generated from `df_original`. Of course, this also works with only a single anonymized dataset. (The "anonymization" here is nothing more than swapping a small fraction of the values.)')
+syn_data = [anonymize_data(df_original) for _ in range(4)]
 
 print("\nAt this point, we have prepared the dataframes needed for the ALC measures.")
 print("\nThe ALCManager class is used for all operations. It prepares the data, runs the baseline model, holds the various predictions, computes the ALC measures, and writes the results to files.\n" \
 "\nTo prepare the data, it removes NaN rows, discretizes continuous variables, and encodes non-integer columns as integers. Note in particular that, unless the optional parameter `discertize_in_place` is set to True, it creates a new column for each discretized column, given the name `colname__discretized`. The original column is also kept. The discretized column should be used for the secret column, while the original column should be used for the known column.")
-print('''\n`alcm = ALCManager(df_original, df_control, syn_data)`''')
-alcm = ALCManager(df_original, df_control, syn_data)
+print('''\n`alcm = ALCManager(df_original, syn_data)`''')
+alcm = ALCManager(df_original, syn_data)
 print("\nWe see for instance that the text column 't1' has been encoded as integers, and two discretized columns have been created from the continuous columns:")
-print("\n`alcm.df.orig.head()`")
+print("\n`alcm.df.orig_all.head()`")
 cb()
-print(alcm.df.orig.head())
+print(alcm.df.orig_all.head())
 cb()
 
-print("\nNote in particular that the initial df_original and syn_data dataframes are not used once the ALCManager object has been created. All subsequent operations are made on the processed dataframes in the ALCManager object (`alcm.df.orig`, `alcm.df.cntl`, and `alcm.df.syn_list`).")
+print("\nNote in particular that the df_original and syn_data dataframes are not used once the ALCManager object has been created. All subsequent operations are made on the processed dataframes in the ALCManager object (`alcm.df.orig`, `alcm.df.cntl`, and `alcm.df.syn_list`).")
 
 
 print("\nNow lets run the attacks. An attack consists of a set of predictions on the value of a categorical column (the 'secret' column), assuming knowledge of the value of one or more other columns (the 'known columns'). We make two kinds of predictions, attack predictions and baseline predictions. An attack prediction is made on a row taken from the control data over the anonymized data. A baseline prediction is made from a row taken from the control data over the original data. Note that, since the control row is not part of the original data, the baseline prediction is privacy neutral.")
@@ -173,8 +161,8 @@ print("\nNote the use of the `get_discretized_column` method.  This produces the
 
 print("\nFor the baseline predictions, we need to make a model from the original data.")
 
-print("\n`alcm.build_model(known_columns, secret_column)`")
-alcm.build_model(known_columns, secret_column)
+print("\n`alcm.init_cntl_and_build_model(known_columns, secret_column)`")
+alcm.init_cntl_and_build_model(known_columns, secret_column)
 
 print("\nRun the predictions loop. There is the question of how many predictions to make in order to get a statistically significant result. To avoid doing more work than necessary, the ALCManager can calculate confidence intervals over the set of predictions made so far.")
 
@@ -220,7 +208,7 @@ print("\nAs it so happens, there is no correlation between 't1' and 'i2' or 'f1'
 print("\nLet's run a second attack, here assuming that the attacker knows the value of column 'i1' and wants to predict the value of column 't1'.")
 known_columns = ['i1']
 secret_column = alcm.get_discretized_column('t1')
-alcm.build_model(known_columns, secret_column)
+alcm.init_cntl_and_build_model(known_columns, secret_column)
 run_predictions_loop(alcm, secret_column, known_columns, df_anon)
 
 print("\nLet's look at the precision, recall, and ALC scores for the second attack:")

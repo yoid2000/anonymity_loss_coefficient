@@ -43,6 +43,7 @@ class ScoreInterval:
 
     def get_alc_scores(self, df_base: pd.DataFrame,
                              df_attack: pd.DataFrame,
+                             max_score_interval: float = 0.5,
                              ) -> List[Dict]:
         '''
         df_base and df_attack are the dataframes containing only the set of predictions
@@ -72,6 +73,8 @@ class ScoreInterval:
             attack_low, attack_high = self.compute_precision_interval(n = len(df_atk_conf),
                                                               precision = attack_prec_as_sampled)
             attack_si = attack_high - attack_low
+            if attack_si > max_score_interval or base_si > max_score_interval:
+                continue
             alc_as_sampled = self.alc.alc(p_base=base_prec_as_sampled, r_base=base_recall, p_attack=attack_prec_as_sampled, r_attack=attack_recall)
             base_prec = base_low + (base_si/2)
             attack_prec = attack_low + (attack_si/2)

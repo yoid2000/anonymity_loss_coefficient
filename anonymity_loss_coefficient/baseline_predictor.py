@@ -7,25 +7,29 @@ from sklearn.ensemble import RandomForestClassifier
 class BaselinePredictor:
     '''
     '''
-    def __init__(self, df_orig: pd.DataFrame) -> None:
-        self.df_orig = df_orig
+    def __init__(self) -> None:
         self.model = None
+        self.known_columns = None
+        self.secret_col = None
 
-    def build_model(self, known_columns: List[str], secret_col: str,  random_state: Optional[int] = None) -> None:
-        X = self.df_orig[list(known_columns)]
-        y = self.df_orig[secret_col]
+    def build_model(self, df: pd.DataFrame, known_columns: Optional[List[str]] = None, secret_col: Optional[str] = None,  random_state: Optional[int] = None) -> None:
+        if known_columns is not None:
+            self.known_columns = known_columns
+        if secret_col is not None:
+            self.secret_col = secret_col
+        X = df[list(self.known_columns)]
+        y = df[self.secret_col]
         y = y.values.ravel()  # Convert to 1D array
 
         # Build and train the model
         try:
-            model = RandomForestClassifier(random_state=random_state)
+            self.model = RandomForestClassifier(random_state=random_state)
         except Exception as e:
             # raise error
             raise ValueError(f"Error building RandomForestClassifier {e}") from e
 
         y = y.astype(int)  # Convert to integer if necessary
-        model.fit(X, y)
-        self.model = model
+        self.model.fit(X, y)
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
         if self.model is None:
