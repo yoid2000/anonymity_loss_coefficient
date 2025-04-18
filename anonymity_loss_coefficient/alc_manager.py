@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Optional, Dict, List, Union, Any, Tuple
+from typing import Optional, Dict, List, Union, Any, Tuple, Generator
 import numpy as np
 import pandas as pd
 from .reporting import *
@@ -21,6 +21,7 @@ class ALCManager:
                        halt_thresh_low = 0.4,
                        halt_thresh_high = 0.9,
                        halt_interval_thresh = 0.1,
+                       random_state: Optional[int] = None
                        ) -> None:
         self.df = DataFiles(
                  df_original=df_original,
@@ -28,24 +29,155 @@ class ALCManager:
                  disc_max=disc_max,
                  disc_bins=disc_bins,
                  discretize_in_place=discretize_in_place,
+                 random_state=random_state,
         )
         self.base_pred = BaselinePredictor()
+        self.random_state = random_state
         self.max_score_interval = max_score_interval
         self.halt_thresh_low = halt_thresh_low
         self.halt_thresh_high = halt_thresh_high
         self.halt_interval_thresh = halt_interval_thresh
-        self.si_confidence = si_confidence
-        self.si_type = si_type
         self.summary_path_csv = None
         self.all_known_columns = []
         self.all_secret_columns = []
         self.results = []
-        self.si = ScoreInterval()
+        self.si_confidence = si_confidence
+        self.si_type = si_type
+        self.si = ScoreInterval(measure=self.si_type, confidence_level=self.si_confidence)
         self.si_secret = ''
         self.si_known_columns = []
         self.df_secret_known_results = None
         self.df_secret_results = None
         self.df_results = None
+
+        # These three are used by the predictor to obtain the attacker's prediction
+        # and confidence
+        self.prediction_made = False
+        self.encoded_predicted_value = None
+        self.prediction_confidence = None
+        # This is the true value that predicted_value is compared against
+        self.encoded_true_value = None
+        # This is the True/False result of the prediction
+        self.prediction_result = None
+        # These contain information that the attacker can use to determine
+        # why an attack loop halted
+        self.halt_info = None
+
+    def predictor(self,
+                  known_columns: List[str],
+                  secret_col: str,
+                  ) -> Generator[Tuple[pd.DataFrame, Any, Any], None, None]:
+        """
+        This is the main method of the ALCManager class. It is a generator that yields
+        the rows to use in an attack. It makes one baseline prediction per loop. The
+        caller must make an attack prediction in each loop. This method determines
+        when enough predictions have been made to produce a good ALC score.
+        """
+        # Establish the targets to ignore, if any, and make a ScoreInterval object
+        # for the halting decision.
+        ignore_encoded_targets = self._get_targets_to_ignore_for_halting(secret_col)
+        si_halt = ScoreInterval(measure=self.si_type, confidence_level=self.si_confidence)
+
+        # Initialize the first set of control rows
+        self.init_cntl_and_build_model(known_columns, secret_col)
+
+        num_attacks = 0
+        self.halt_info = {'halted': False, 'reason': 'loop not started', 'num_attacks': 0}
+        while True:
+            for i in range(len(self.df.cntl)):
+                num_attacks += 1
+                # Get one base and attack measure at a time, and continue until we have
+                # enough confidence in the results
+                atk_row = self.df.cntl.iloc[[i]]
+
+                # For the purpose of determining if the attack prediction is True or False,
+                # we determine the true value. The decoded_true_value is the true value 
+                # after decoding from the encoding done in pre-processing
+                self.encoded_true_value = atk_row[secret_col].iloc[0]
+                decoded_true_value = self.decode_value(secret_col, self.encoded_true_value)
+
+                # Determine if the row should be ignored or not for the purpose of
+                # the halting criteria.
+                if self.encoded_true_value not in ignore_encoded_targets:
+                    si_halt_to_use = si_halt
+                else:
+                    si_halt_to_use = None
+                self._model_prediction(atk_row, secret_col, known_columns, si_halt_to_use)
+
+                # The attacker only needs to know the values of the known_columns for the
+                # purpose of running the attack, so we separate them out.
+                df_query = atk_row[known_columns]
+                self.prediction_made = False
+                yield df_query, self.encoded_true_value, decoded_true_value
+
+                if self.prediction_made is False:
+                    raise ValueError("Error: No prediction was made in the predictor method. The caller must call the ALCManager prediction() method in each loop of the predictor.")
+                self.prediction_made = False
+                if self.encoded_predicted_value is not None:
+                    decoded_predicted_value = self.decode_value(secret_col, self.encoded_predicted_value)
+                else:
+                    decoded_predicted_value = None
+                self._add_result(predict_type='attack',
+                                known_columns=known_columns,
+                                secret_col=secret_col,
+                                decoded_predicted_value=decoded_predicted_value,
+                                decoded_true_value=decoded_true_value,
+                                encoded_predicted_value=self.encoded_predicted_value,
+                                encoded_true_value=self.encoded_true_value,
+                                attack_confidence=self.prediction_confidence,
+                                si_halt=si_halt_to_use)
+                self.halt_info = self._ok_to_halt(si_halt)
+                self.halt_info.update({'num_attacks': num_attacks})
+                if self.halt_info['halted'] is True:
+                    return
+            is_assigned = self.next_cntl_and_build_model()
+            if is_assigned is False:
+                self.halt_info = {'halted': False, 'reason': 'exhausted all rows',  'num_attacks': num_attacks}
+                return
+
+    def prediction(self, encoded_predicted_value: Any, prediction_confidence: float) -> bool:
+        self.prediction_made = True
+        self.encoded_predicted_value = encoded_predicted_value
+        self.prediction_confidence = prediction_confidence
+        if self.encoded_predicted_value == self.encoded_true_value:
+            self.prediction_result = True
+        else:
+            self.prediction_result = False
+        # We return the result of the prediction to the caller as a convenience.
+        # This allows the caller to ensure that it agrees with the result.
+        return self.prediction_result
+
+    def _model_prediction(self, row: pd.DataFrame,
+                     secret_col: str,
+                     known_columns: List[str],
+                     si_halt: Optional[ScoreInterval]) -> None:
+        # get the prediction for the row
+        df_row = row[known_columns]  # This is already a DataFrame
+        encoded_predicted_value, proba = self.predict(df_row)
+        encoded_true_value = row[secret_col].iloc[0]
+        decoded_predicted_value = self.decode_value(secret_col, encoded_predicted_value)
+        decoded_true_value = self.decode_value(secret_col, encoded_true_value)
+        self._add_result(predict_type='base',
+                         known_columns=known_columns,
+                         secret_col=secret_col,
+                         decoded_predicted_value=decoded_predicted_value,
+                         decoded_true_value=decoded_true_value,
+                         encoded_predicted_value=encoded_predicted_value,
+                         encoded_true_value=encoded_true_value,
+                         base_confidence=proba,
+                         si_halt=si_halt)
+
+    def _get_targets_to_ignore_for_halting(self, column: str) -> list:
+        '''
+        With respect to the halting decision, we want to ignore column values that are
+        too common because then we won't get an adequate sampling of other column values.
+        We put the threshold above 0.5 because we don't want to ignore a value in a
+        well-balanced binary column.
+        '''
+        value_counts = self.df.orig_all[column].value_counts(normalize=True)
+        ignore_targets = value_counts[(value_counts > 0.6)].index.tolist()
+        return ignore_targets
+
 
     def _get_results_dict(self) -> List[Dict[str, Any]]:
         return self.results
@@ -180,32 +312,18 @@ class ALCManager:
                         attack_name,
                         os.path.join(results_path, 'alc_prec_plot_best.png'))
 
-    def add_base_result(self,
-                   known_columns: List[str],
-                   secret_col: str,
-                   predicted_value: Any,
-                   true_value: Any,
-                   base_confidence: float = None,
-                   ) -> None:
-        self.add_result('base', known_columns, secret_col, predicted_value, true_value, base_confidence, None)
 
-    def add_attack_result(self,
-                   known_columns: List[str],
-                   secret_col: str,
-                   predicted_value: Any,
-                   true_value: Any,
-                   attack_confidence: float = None,
-                   ) -> None:
-        self.add_result('attack', known_columns, secret_col, predicted_value, true_value, None, attack_confidence)
-
-    def add_result(self,
+    def _add_result(self,
                    predict_type: str,
                    known_columns: List[str],
                    secret_col: str,
-                   predicted_value: Any,
-                   true_value: Any,
-                   base_confidence: float = None,
-                   attack_confidence: float = None,
+                   decoded_predicted_value: Any,
+                   decoded_true_value: Any,
+                   encoded_predicted_value: Any,
+                   encoded_true_value: Any,
+                   base_confidence: Optional[float] = None,
+                   attack_confidence: Optional[float] = None,
+                   si_halt: Optional[ScoreInterval] = None,
                    ) -> None:
         # Reset the results dataframes because they will be out of date after this add
         self.df_secret_known_results = None
@@ -225,9 +343,9 @@ class ALCManager:
         known_columns = sorted(known_columns)
         self.check_for_si_reset(known_columns, secret_col)
         # Check if predicted_value is a numpy type
-        if isinstance(predicted_value, np.generic):
-            predicted_value = predicted_value.item()
-        if predicted_value == true_value:
+        if isinstance(decoded_predicted_value, np.generic):
+            decoded_predicted_value = decoded_predicted_value.item()
+        if decoded_predicted_value == decoded_true_value:
             prediction = True
         else:
             prediction = False
@@ -236,8 +354,10 @@ class ALCManager:
             'known_columns': self._make_known_columns_str(known_columns),
             'num_known_columns': len(known_columns),
             'secret_column': secret_col,
-            'predicted_value': predicted_value,
-            'true_value': true_value,
+            'predicted_value': decoded_predicted_value,
+            'true_value': decoded_true_value,
+            'encoded_predicted_value': encoded_predicted_value,
+            'encoded_true_value': encoded_true_value,
             'prediction': prediction,
             'base_confidence': base_confidence,
             'attack_confidence': attack_confidence,
@@ -246,6 +366,8 @@ class ALCManager:
         if predict_type == 'attack':
             confidence = attack_confidence
         self.si.add_prediction(prediction, confidence, predict_type)
+        if si_halt is not None:
+            si_halt.add_prediction(prediction, confidence, predict_type)
 
     def check_for_si_reset(self, known_columns: List[str], secret_col: str) -> None:
         if self.si_secret != secret_col or self.si_known_columns != known_columns:
@@ -253,12 +375,12 @@ class ALCManager:
             self.si_known_columns = known_columns
             self.si.reset()
 
-    def ok_to_halt(self) -> Tuple[bool, Optional[Dict], str]:
-        if len(self.si.df_base) < 10 or len(self.si.df_attack) < 10:
-            return False, None, 'not enough samples'
-        alc_scores = self.si.get_alc_scores(self.si.df_base, self.si.df_attack, max_score_interval=self.max_score_interval)
+    def _ok_to_halt(self, si_halt: ScoreInterval) -> Dict[str, Any]:
+        if len(si_halt.df_base) < 10 or len(si_halt.df_attack) < 10:
+            return {'halted': False, 'reason': 'not enough samples'}
+        alc_scores = si_halt.get_alc_scores(si_halt.df_base, si_halt.df_attack, max_score_interval=self.max_score_interval)
         if len(alc_scores) == 0:
-            return False, None, f'no alc scores with attack_si and base_si < {self.max_score_interval}'
+            return {'halted': False, 'reason':f'no alc scores with attack_si and base_si < {self.max_score_interval}'}
         # sort alc_scores by 'alc' descending
         alc_scores.sort(key=lambda x: x['alc'], reverse=True)
         max_alc = alc_scores[0]
@@ -267,15 +389,17 @@ class ALCManager:
                'alc': float(round(max_alc['alc'], 3)),
                'attack_si': float(round(max_alc['attack_si'], 3)),
                'base_si': float(round(max_alc['base_si'], 3))}
-        #print(ret)
         if ret['alc_high'] < self.halt_thresh_low:
-            return True, ret, 'alc extremely low'
+            ret.update({'halted':True, 'reason':'alc extremely low'})
+            return ret
         if ret['alc_low'] > self.halt_thresh_high:
-            return True, ret, 'alc extremely high'
-        if (max_alc['attack_si'] <= self.halt_interval_thresh and 
+            ret.update({'halted':True, 'reason':'alc extremely high'})
+            return ret
+        if (max_alc['attack_si'] <= self.halt_interval_thresh and
             max_alc['base_si'] <= self.halt_interval_thresh):
-            return True, ret, 'attack and base precision interval within bounds'
-        return False, ret, 'halt conditions not met'
+            ret.update({'halted':True, 'reason':'attack and base precision interval within bounds'})
+            return ret
+        return {'halted': False, 'reason': 'halt conditions not met'}
 
     def save_to_text(self, results_path: str, text_summary: str, file_name: str) -> None:
         save_path = os.path.join(results_path, file_name)
@@ -313,11 +437,12 @@ class ALCManager:
         return self.df.column_classification.copy()
 
     # Following are the methods that use BasePredictor 
-    def init_cntl_and_build_model(self, known_columns: List[str], secret_col: str,  random_state: Optional[int] = None) -> None:
+    def init_cntl_and_build_model(self, known_columns: List[str], secret_col: str,  
+                                  ) -> None:
         is_assigned = self.df.assign_first_cntl_block()
         if is_assigned is False:
             raise ValueError("Error: Control block initialization failed")
-        self.base_pred.build_model(self.df.orig, known_columns, secret_col, random_state)
+        self.base_pred.build_model(self.df.orig, known_columns, secret_col, self.random_state)
 
     def next_cntl_and_build_model(self) -> bool:
         is_assigned = self.df.assign_next_cntl_block()

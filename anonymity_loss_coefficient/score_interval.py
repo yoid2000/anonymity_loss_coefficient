@@ -1,7 +1,7 @@
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 from scipy.stats import norm
 from .anonymity_loss_coefficient import AnonymityLossCoefficient
 
@@ -24,18 +24,21 @@ class ScoreInterval:
 
     def _add_row(self, df: pd.DataFrame, row: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
-            df = row
+            # Directly return the row as the new DataFrame if df is empty
+            return row.reset_index(drop=True)
         else:
-            df = pd.concat([df, row], ignore_index=True)
-        return df
+            # Concatenate the DataFrames if df is not empty
+            return pd.concat([df, row], ignore_index=True)
 
     def add_prediction(self, prediction: bool,
-                       confidence: float,
+                       confidence: Optional[float],
                        predict_type: str) -> None:
         if predict_type == 'base':
             new_row = pd.DataFrame({'prediction': [prediction], 'base_confidence': [confidence]})
             self.df_base = self._add_row(self.df_base, new_row)
-        else:
+        elif confidence is not None:
+            # If confidence is None, that is a kind of abstention, and we don't want to
+            # use it as part of our score interval calculations
             new_row = pd.DataFrame({'prediction': [prediction], 'attack_confidence': [confidence]})
             self.df_attack = self._add_row(self.df_attack, new_row)
 

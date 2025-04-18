@@ -1,7 +1,7 @@
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Union, Any
+from typing import Dict, List, Union, Any, Optional
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import KBinsDiscretizer
 
@@ -12,14 +12,16 @@ class DataFiles:
                  disc_max: int = 50,
                  disc_bins: int = 20,
                  discretize_in_place: bool = False,
-                 max_cntl_size = 1000,
-                 max_cntl_percent = 0.1,
+                 max_cntl_size: int = 1000,
+                 max_cntl_percent: float = 0.1,
+                 random_state: Optional[int] = None,
                  ) -> None:
         self.disc_max = disc_max
         self.disc_bins = disc_bins
         self.discretize_in_place = discretize_in_place
         self.max_cntl_size = max_cntl_size
         self.max_cntl_percent = max_cntl_percent
+        self.random_state = random_state
         self.cntl_size = None
         # self.cntl will contain the part of the raw data used for attacks.
         # self.orig is the original data minus self.cntl
@@ -113,7 +115,7 @@ class DataFiles:
             return False
         self.cntl = self.orig_all.iloc[row_index:row_index + self.cntl_size]
         # Shuffle the control data to ensure randomness
-        self.cntl = self.cntl.sample(frac=1).reset_index(drop=True)
+        self.cntl = self.cntl.sample(frac=1, random_state=self.random_state).reset_index(drop=True)
         self.orig = self.orig_all.drop(self.orig_all.index[row_index:row_index + self.cntl_size])
         return True
 
