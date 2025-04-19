@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import matplotlib.pyplot as plt
-from anonymity_loss_coefficient import AnonymityLossCoefficient
+from alc import AnonymityLossCoefficient
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 import pprint

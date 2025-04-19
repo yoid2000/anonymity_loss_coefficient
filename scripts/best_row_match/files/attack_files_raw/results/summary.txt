@@ -1,0 +1,75 @@
+Anonymity Loss Coefficient Summary
+    attack_files_raw
+Anonymity Level: VERY POOR
+    76 attacks (95.0%) have poor or no anonymity. Strengthen anonymity.
+
+24 columns used as secret columns:
+  PUMA
+  AGEP__discretized
+  SEX
+  MSP
+  HISP
+  RAC1P
+  NOC
+  NPF
+  HOUSING_TYPE
+  OWN_RENT
+  DENSITY__discretized
+  INDP
+  INDP_CAT
+  EDU
+  PINCP
+  PINCP_DECILE
+  POVPIP
+  DVET
+  DREM
+  DPHY
+  DEYE
+  DEAR
+  PWGTP__discretized
+  WGTP__discretized
+
+24 columns used as known columns:
+  AGEP
+  SEX
+  MSP
+  HISP
+  RAC1P
+  NOC
+  NPF
+  HOUSING_TYPE
+  OWN_RENT
+  DENSITY
+  INDP
+  INDP_CAT
+  EDU
+  PINCP
+  PINCP_DECILE
+  POVPIP
+  DVET
+  DREM
+  DPHY
+  DEYE
+  DEAR
+  PWGTP
+  WGTP
+  PUMA
+
+Analyzed known column / secret column combinations: 80
+Perfect anonymity:     4 (5.0%)
+ Strong anonymity:     0 (0.0%)
+          At risk:     0 (0.0%)
+   Poor anonymity:    76 (95.0%)
+     No anonymity:     0 (0.0%)
+
+Examples of poor anonymity loss:
+ALC: 0.96, base (prec: 0.37, recall: 1.0), attack (prec: 0.97, recall: 1.0)
+    Secret: AGEP__discretized, Known: ["DEAR", "DENSITY", "DEYE", "DPHY", "DREM", "DVET", "EDU", "HISP", "HOUSING_TYPE", "INDP", "INDP_CAT", "MSP", "NOC", "NPF", "OWN_RENT", "PINCP", "PINCP_DECILE", "POVPIP", "PUMA", "PWGTP", "RAC1P", "SEX", "WGTP"]
+ALC: 0.96, base (prec: 0.26, recall: 0.95), attack (prec: 0.97, recall: 0.97)
+    Secret: AGEP__discretized, Known: ["DENSITY", "HISP", "OWN_RENT", "PINCP", "PUMA", "PWGTP", "WGTP"]
+ALC: 0.96, base (prec: 0.36, recall: 1.0), attack (prec: 0.97, recall: 1.0)
+    Secret: AGEP__discretized, Known: ["DVET", "EDU", "INDP", "NOC", "PINCP_DECILE", "POVPIP", "PWGTP"]
+ALC: 0.96, base (prec: 0.24, recall: 0.95), attack (prec: 0.97, recall: 0.95)
+    Secret: AGEP__discretized, Known: ["NOC", "PINCP_DECILE", "POVPIP", "PUMA", "PWGTP", "RAC1P", "WGTP"]
+ALC: 0.96, base (prec: 0.95, recall: 1.0), attack (prec: 1.0, recall: 1.0)
+    Secret: DEAR, Known: ["AGEP", "DENSITY", "DEYE", "DPHY", "DREM", "DVET", "EDU", "HISP", "HOUSING_TYPE", "INDP", "INDP_CAT", "MSP", "NOC", "NPF", "OWN_RENT", "PINCP", "PINCP_DECILE", "POVPIP", "PUMA", "PWGTP", "RAC1P", "SEX", "WGTP"]
