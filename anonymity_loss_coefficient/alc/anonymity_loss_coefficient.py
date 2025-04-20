@@ -49,7 +49,11 @@ class AnonymityLossCoefficient:
         return prc_attack - prc_base
 
     def _prc_improve_relative(self, prc_base: float, prc_attack: float) -> float:
-        return (prc_attack - prc_base) / (1.00001 - prc_base)
+        if prc_base == 1.0:
+            prc_base = 0.99999999
+        if prc_attack == 1.0:
+            prc_attack = 0.99999999
+        return (prc_attack - prc_base) / (1.0 - prc_base)
 
     def _prc_improve(self, prc_base: float, prc_attack: float) -> float:
         prc_rel = self._prc_improve_relative(prc_base, prc_attack)
@@ -110,7 +114,7 @@ class AnonymityLossCoefficient:
         return 10 ** (np.log10(Rmin) * (1 - PRC / P) ** (1 / alpha))
 
     def prcatk_from_prcbase_alc(self, prc_base: float, alc: float) -> float:
-        ''' Given a PRC and anonymity loss coefficient, return the PRC of the attack.
+        ''' Given a base PRC and ALC, return the PRC of the attack.
         '''
-        prc_atk = ((2 * alc) - (2 * alc) * prc_base + (2 * prc_base) - (prc_base ** 2)) / (2 - prc_base)
+        prc_atk = (alc * (1.0-prc_base)) + prc_base
         return prc_atk
