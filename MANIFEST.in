@@ -1,4 +1,2 @@
 include README.md
 include LICENSE
-recursive-include anonymity_loss_coefficient *.py
-recursive-include attacks *.py

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='anonymity_loss_coefficient',
-    version='1.0.8',
+    version='1.0.10',
     description='A package to run attacks on anonymized data using the Anonymity Loss Coefficient.',
     author='Paul Francis',
     author_email='paul@francis.com',
