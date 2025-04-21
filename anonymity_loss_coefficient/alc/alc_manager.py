@@ -341,7 +341,7 @@ class ALCManager:
                 self.all_known_columns.append(col)
         # sort known_columns
         known_columns = sorted(known_columns)
-        self.check_for_si_reset(known_columns, secret_col)
+        self._check_for_si_reset(known_columns, secret_col)
         # Check if predicted_value is a numpy type
         if isinstance(decoded_predicted_value, np.generic):
             decoded_predicted_value = decoded_predicted_value.item()
@@ -369,7 +369,7 @@ class ALCManager:
         if si_halt is not None:
             si_halt.add_prediction(prediction, confidence, predict_type)
 
-    def check_for_si_reset(self, known_columns: List[str], secret_col: str) -> None:
+    def _check_for_si_reset(self, known_columns: List[str], secret_col: str) -> None:
         if self.si_secret != secret_col or self.si_known_columns != known_columns:
             self.si_secret = secret_col
             self.si_known_columns = known_columns

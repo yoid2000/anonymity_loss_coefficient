@@ -4,6 +4,7 @@ from typing import List, Union, Any, Tuple
 from itertools import combinations
 from anonymity_loss_coefficient.alc.alc_manager import ALCManager
 from .matching_routines import find_best_matches, modal_fraction, best_match_confidence
+from anonymity_loss_coefficient.utils import get_good_known_column_sets
 import pprint
 
 pp = pprint.PrettyPrinter(indent=4)
@@ -14,6 +15,7 @@ class BrmAttack:
                  df_synthetic: Union[pd.DataFrame, List[pd.DataFrame]],
                  results_path: str = None,
                  max_known_col_sets: int = 1000,
+                 known_cols_sets_unique_threshold: float = 0.45,
                  num_per_secret_attacks: int = 100,
                  max_rows_per_attack: int = 500,
                  min_positive_predictions: int = 5,
@@ -24,6 +26,7 @@ class BrmAttack:
         # up to work with ML modeling
         self.results_path = results_path
         self.max_known_col_sets = max_known_col_sets
+        self.known_cols_sets_unique_threshold = known_cols_sets_unique_threshold
         self.num_per_secret_attacks = num_per_secret_attacks
         self.max_rows_per_attack = max_rows_per_attack
         self.min_positive_predictions = min_positive_predictions
@@ -37,10 +40,10 @@ class BrmAttack:
         # The known columns are the pre-discretized continuous columns and categorical
         # columns (i.e. all original columns). The secret columns are the discretized
         # continuous columns and categorical columns.
-        self.known_columns = self.original_columns
+        self.all_known_columns = self.original_columns
         self.secret_cols = [self.alcm.get_discretized_column(col) for col in self.original_columns]
-        print(f"There are {len(self.known_columns)} potential known columns:")
-        print(self.known_columns)
+        print(f"There are {len(self.all_known_columns)} potential known columns:")
+        print(self.all_known_columns)
         print(f"There are {len(self.secret_cols)} potential secret columns:")
         print(self.secret_cols)
         print("Columns are classified as:")
@@ -52,7 +55,7 @@ class BrmAttack:
         '''
         # select a set of original rows to use for the attack
         for secret_col in self.secret_cols:
-            known_columns = [col for col in self.known_columns if col != self.alcm.get_pre_discretized_column(secret_col)]
+            known_columns = [col for col in self.all_known_columns if col != self.alcm.get_pre_discretized_column(secret_col)]
             self.brm_attack(secret_col, known_columns)
 
     def brm_attack(self, secret_col: str, known_columns: List[str]) -> None:
@@ -73,7 +76,7 @@ class BrmAttack:
             # raise a value error
             raise ValueError("results_path must be set")
         self.run_all_columns_attack()
-        known_column_sets = self._find_unique_column_sets(self.alcm.df.orig_all, max_sets = self.max_known_col_sets)
+        known_column_sets = get_good_known_column_sets(self.alcm.df.orig_all, self.all_known_columns, max_sets = self.max_known_col_sets, unique_rows_threshold = self.known_cols_sets_unique_threshold)
         print(f"Found {len(known_column_sets)} unique known column sets ")
         min_set_size = min([len(col_set) for col_set in known_column_sets])
         max_set_size = max([len(col_set) for col_set in known_column_sets])
@@ -128,30 +131,3 @@ class BrmAttack:
                 best_pred_value = this_pred_value
         return best_pred_value, best_confidence
 
-
-    def _find_unique_column_sets(self, df: pd.DataFrame, max_sets: int = 1000) -> list:
-        num_unique_rows = df.drop_duplicates().shape[0]
-        column_sets = []
-        stats = {}
-        for col in self.known_columns:
-            stats[col] = 0
-        for r in range(1, len(self.known_columns) + 1):
-            inactive = 0
-            col_combs = list(combinations(self.known_columns, r))
-            random.shuffle(col_combs)
-            for cols in col_combs:
-                inactive += 1
-                if inactive > 50:
-                    # Don't continue working on overly small column sets
-                    break
-                num_distinct = df[list(cols)].drop_duplicates().shape[0]
-                # We want a given known columns set of values to be unique with high probability
-                if num_distinct >= (num_unique_rows * 0.95):
-                    inactive = 0
-                    column_sets.append(cols)
-                    for col in cols:
-                        stats[col] += 1
-                    if len(column_sets) >= max_sets:
-                        pp.pprint(stats)
-                        return column_sets
-        return column_sets
