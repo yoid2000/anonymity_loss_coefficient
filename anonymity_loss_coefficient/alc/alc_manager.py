@@ -3,15 +3,18 @@ import json
 from typing import Optional, Dict, List, Union, Any, Tuple, Generator
 import numpy as np
 import pandas as pd
+import logging
 from .reporting import *
 from .data_files import DataFiles
 from .baseline_predictor import BaselinePredictor
 from .score_interval import ScoreInterval
+from anonymity_loss_coefficient.utils import setup_logging
 
 
 class ALCManager:
     def __init__(self, df_original: pd.DataFrame,
                        df_synthetic: Union[pd.DataFrame, List[pd.DataFrame]],
+                       logger: logging.Logger = None,
                        disc_max: int = 50,
                        disc_bins: int = 20,
                        discretize_in_place: bool = False,
@@ -31,6 +34,7 @@ class ALCManager:
                  discretize_in_place=discretize_in_place,
                  random_state=random_state,
         )
+        self.logger = logger
         self.base_pred = BaselinePredictor()
         self.random_state = random_state
         self.max_score_interval = max_score_interval
@@ -276,6 +280,9 @@ class ALCManager:
                           with_text: bool = True,
                           with_plot: bool = True) -> None:
         os.makedirs(results_path, exist_ok=True)
+        if self.logger is None:
+            logger_path = os.path.join(results_path, 'brm_attack.log')
+            self.logger = setup_logging(log_file_path=logger_path)
         df = self.get_results_df()
         self.save_to_csv(results_path, df, 'summary_raw.csv')
         df_secret_known = self.alc_per_secret_and_known_df()
@@ -407,18 +414,18 @@ class ALCManager:
             with open(save_path, 'w') as f:
                 f.write(text_summary)
         except PermissionError:
-            print(f"Warning: The file at {save_path} is currently open in another application. You might want to make a copy of the summary file in order to view it while the attack is still executing.")
+            self.logger.warning(f"Warning: The file at {save_path} is currently open in another application. You might want to make a copy of the summary file in order to view it while the attack is still executing.")
         except Exception as e:
-            print(f"Error: Failed to write {save_path}: {e}")
+            self.logger.error(f"Error: Failed to write {save_path}: {e}")
 
     def save_to_csv(self, results_path, df: pd.DataFrame, file_name: str) -> None:
         save_path = os.path.join(results_path, file_name)
         try:
             df.to_csv(save_path, index=False)
         except PermissionError:
-            print(f"Warning: The file at {save_path} is currently open in another application. You might want to make a copy of the summary file in order to view it while the attack is still executing.")
+            self.logger.warning(f"Warning: The file at {save_path} is currently open in another application. You might want to make a copy of the summary file in order to view it while the attack is still executing.")
         except Exception as e:
-            print(f"Error: Failed to write {save_path}: {e}")
+            self.logger.error(f"Error: Failed to write {save_path}: {e}")
     
     # Following are the methods that use DataFiles
     def get_pre_discretized_column(self, secret_column: str) -> str:

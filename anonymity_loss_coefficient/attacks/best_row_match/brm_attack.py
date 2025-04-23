@@ -1,10 +1,11 @@
+import os
 import pandas as pd
 import random
 from typing import List, Union, Any, Tuple
 from itertools import combinations
 from anonymity_loss_coefficient.alc.alc_manager import ALCManager
 from .matching_routines import find_best_matches, modal_fraction, best_match_confidence
-from anonymity_loss_coefficient.utils import get_good_known_column_sets
+from anonymity_loss_coefficient.utils import get_good_known_column_sets, setup_logging
 import pprint
 
 pp = pprint.PrettyPrinter(indent=4)
@@ -32,22 +33,23 @@ class BrmAttack:
         self.min_positive_predictions = min_positive_predictions
         self.confidence_interval_tolerance = confidence_interval_tolerance
         self.confidence_level = confidence_level
-        self.results_path = results_path
         self.attack_name = attack_name
         self.original_columns = df_original.columns.tolist()
-        print(f"Original columns: {self.original_columns}")
-        self.alcm = ALCManager(df_original, df_synthetic)
+        logger_path = os.path.join(results_path, 'brm_attack.log')
+        self.logger = setup_logging(log_file_path=logger_path)
+        self.logger.info(f"Original columns: {self.original_columns}")
+        self.alcm = ALCManager(df_original, df_synthetic, logger=self.logger,)
         # The known columns are the pre-discretized continuous columns and categorical
         # columns (i.e. all original columns). The secret columns are the discretized
         # continuous columns and categorical columns.
         self.all_known_columns = self.original_columns
         self.all_secret_cols = [self.alcm.get_discretized_column(col) for col in self.original_columns]
-        print(f"There are {len(self.all_known_columns)} potential known columns:")
-        print(self.all_known_columns)
-        print(f"There are {len(self.all_secret_cols)} potential secret columns:")
-        print(self.all_secret_cols)
-        print("Columns are classified as:")
-        pp.pprint(self.alcm.get_column_classification_dict())
+        self.logger.info(f"There are {len(self.all_known_columns)} potential known columns:")
+        self.logger.info(self.all_known_columns)
+        self.logger.info(f"There are {len(self.all_secret_cols)} potential secret columns:")
+        self.logger.info(self.all_secret_cols)
+        self.logger.info("Columns are classified as:")
+        self.logger.info(pp.pformat(self.alcm.get_column_classification_dict()))
 
     def run_all_columns_attack(self, secret_cols: List[str] = None) -> None:
         '''
@@ -63,11 +65,11 @@ class BrmAttack:
         if known_columns is None:
             # select a set of original rows to use for the attack
             known_columns = self.all_known_columns
-        print(f"Attack secret column {secret_col}\n    assuming {len(known_columns)} known columns {known_columns}")
+        self.logger.info(f"Attack secret column {secret_col}\n    assuming {len(known_columns)} known columns {known_columns}")
         for atk_row, _, _ in self.alcm.predictor(known_columns, secret_col):
             encoded_predicted_value, prediction_confidence = self._best_row_attack(atk_row, secret_col, known_columns)
             self.alcm.prediction(encoded_predicted_value, prediction_confidence)
-        print(f'''   Finished after {self.alcm.halt_info['num_attacks']} attacks with ALC {self.alcm.halt_info['alc'] if 'alc' in self.alcm.halt_info else 'unknown'} for reason "{self.alcm.halt_info['reason']}"''')
+        self.logger.info(f'''   Finished after {self.alcm.halt_info['num_attacks']} attacks with ALC {self.alcm.halt_info['alc'] if 'alc' in self.alcm.halt_info else 'unknown'} for reason "{self.alcm.halt_info['reason']}"''')
 
         self.alcm.summarize_results(results_path = self.results_path,
                                         attack_name = self.attack_name, with_plot=True)
@@ -85,18 +87,18 @@ class BrmAttack:
         if secret_cols is None:
             secret_cols = self.all_secret_cols
         known_column_sets = get_good_known_column_sets(self.alcm.df.orig_all, known_columns, max_sets = self.max_known_col_sets, unique_rows_threshold = self.known_cols_sets_unique_threshold)
-        print(f"Found {len(known_column_sets)} unique known column sets ")
+        self.logger.info(f"Found {len(known_column_sets)} unique known column sets ")
         min_set_size = min([len(col_set) for col_set in known_column_sets])
         max_set_size = max([len(col_set) for col_set in known_column_sets])
-        print(f"Minimum set size: {min_set_size}, Maximum set size: {max_set_size}")
+        self.logger.info(f"Minimum set size: {min_set_size}, Maximum set size: {max_set_size}")
         per_secret_column_sets = {}
         max_col_set_size = 0
         for secret_col in secret_cols:
             valid_known_column_sets = [col_set for col_set in known_column_sets if self.alcm.get_pre_discretized_column(secret_col) not in col_set]
-            print(f"For secret_col {secret_col}, found {len(valid_known_column_sets)} valid known column sets")
+            self.logger.info(f"For secret_col {secret_col}, found {len(valid_known_column_sets)} valid known column sets")
             sampled_known_column_sets = random.sample(valid_known_column_sets,
                                               min(self.num_per_secret_attacks, len(valid_known_column_sets)))
-            print(f"Selected {len(sampled_known_column_sets)} sampled known column sets")
+            self.logger.info(f"Selected {len(sampled_known_column_sets)} sampled known column sets")
             max_col_set_size = max(max_col_set_size, len(sampled_known_column_sets))
             per_secret_column_sets[secret_col] = {'known_column_sets': sampled_known_column_sets}
         for i in range(max_col_set_size):
