@@ -174,7 +174,7 @@ def _get_base_subset(df_base: pd.DataFrame, num_predictions: int) -> pd.DataFram
         raise ValueError("num_predictions must be no more than the length of df_base.")
 
     # Get the unique base_confidence values
-    unique_confidences = df_base['base_confidence'].unique()
+    unique_confidences = sorted(df_base['base_confidence'].unique(), reverse=True)
 
     # Initialize variables to track the closest cut-point
     cumulative_count = 0

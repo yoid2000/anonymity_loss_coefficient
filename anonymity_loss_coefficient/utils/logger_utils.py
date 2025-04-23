@@ -1,7 +1,8 @@
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 
-def setup_logging(log_file_path:str, stream_level:int=logging.INFO, file_level:int=logging.DEBUG) -> logging.Logger:
+def setup_logging(log_file_path:str, stream_level:int=logging.INFO, file_level:int=logging.INFO) -> logging.Logger:
     """
     Configures logging to send logs to both stdout and a log file with different log levels.
 
@@ -29,7 +30,7 @@ def setup_logging(log_file_path:str, stream_level:int=logging.INFO, file_level:i
     stream_handler.setFormatter(stream_formatter)
 
     # Create a FileHandler for logging to a file
-    file_handler = logging.FileHandler(log_file_path)
+    file_handler = RotatingFileHandler(log_file_path, maxBytes=500_000_000, backupCount=1)
     file_handler.setLevel(file_level)  # Set the log level for the FileHandler
     file_handler.setFormatter(file_formatter)
 

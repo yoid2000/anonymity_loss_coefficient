@@ -9,6 +9,8 @@ from .data_files import DataFiles
 from .baseline_predictor import BaselinePredictor
 from .score_interval import ScoreInterval
 from anonymity_loss_coefficient.utils import setup_logging
+import pprint
+pp = pprint.PrettyPrinter(indent=4)
 
 
 class ALCManager:
@@ -132,6 +134,7 @@ class ALCManager:
                                 si_halt=si_halt_to_use)
                 self.halt_info = self._ok_to_halt(si_halt)
                 self.halt_info.update({'num_attacks': num_attacks})
+                self.logger.debug(pp.pformat(self.halt_info))
                 if self.halt_info['halted'] is True:
                     return
             is_assigned = self.next_cntl_and_build_model()
@@ -395,7 +398,12 @@ class ALCManager:
                'alc_high': float(round(max_alc['alc_high'], 3)),
                'alc': float(round(max_alc['alc'], 3)),
                'attack_si': float(round(max_alc['attack_si'], 3)),
-               'base_si': float(round(max_alc['base_si'], 3))}
+               'base_si': float(round(max_alc['base_si'], 3)),
+               'attack_recall': float(round(max_alc['attack_recall'], 3)),
+               'base_recall': float(round(max_alc['base_recall'], 3)),
+               'base_n': max_alc['base_n'],
+               'attack_n': max_alc['attack_n'],
+               }
         if ret['alc_high'] < self.halt_thresh_low:
             ret.update({'halted':True, 'reason':'alc extremely low'})
             return ret
@@ -406,7 +414,8 @@ class ALCManager:
             max_alc['base_si'] <= self.halt_interval_thresh):
             ret.update({'halted':True, 'reason':'attack and base precision interval within bounds'})
             return ret
-        return {'halted': False, 'reason': 'halt conditions not met'}
+        ret.update({'halted':False, 'reason':'halt conditions not met'})
+        return ret
 
     def save_to_text(self, results_path: str, text_summary: str, file_name: str) -> None:
         save_path = os.path.join(results_path, file_name)

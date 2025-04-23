@@ -23,7 +23,16 @@ class BaselinePredictor:
 
         # Build and train the model
         try:
-            self.model = RandomForestClassifier(random_state=random_state)
+            self.model = RandomForestClassifier(
+                            random_state=random_state,
+                            n_estimators=100,          # Same as default
+                            max_depth=10,              # Limit tree depth (default is None)
+                            max_features='sqrt',       # Same as default
+                            min_samples_split=10,      # Higher than default (default is 2)
+                            min_samples_leaf=5,        # Higher than default (default is 1)
+                            class_weight='balanced',   # Adjust for class imbalance (default is None)
+                            oob_score=True             # Enable out-of-bag scoring (default is False)
+                           )
         except Exception as e:
             # raise error
             raise ValueError(f"Error building RandomForestClassifier {e}") from e

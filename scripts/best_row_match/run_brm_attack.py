@@ -9,7 +9,9 @@ def launch_attack(data: str,
                   name: str,
                   secret: List[str] = None,
                   known: List[str] = None,
-                  run_once: bool = False) -> None:
+                  run_once: bool = False,
+                  verbose: verbose,
+                  ) -> None:
     if not os.path.isdir(data):
         print(f"Error: {data} is not a directory")
         sys.exit(1)
@@ -41,6 +43,7 @@ def launch_attack(data: str,
                     df_synthetic=syn_dfs,
                     results_path=results_path,
                     attack_name = name,
+                    verbose = verbose,
                     )
     if run_once:
         brm.run_one_attack(secret_col=secret[0], known_columns=known)
@@ -59,6 +62,7 @@ def main():
     parser.add_argument("-k", "--known", type=str, nargs='+', required=False, help="One or more known columns (separate by space). If not provided, all columns will be used.")
     parser.add_argument("-s", "--secret", type=str, nargs='+', required=False, help="One or more secret columns (separate by space). If not provided, all columns will be used.")
     parser.add_argument("-1", "--one", action="store_true", help="Run the attack once. If not included, runs multiple times.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Logging at debug level. (Does not effect sysout.)")
 
     # Parse the arguments
     args = parser.parse_args()
@@ -80,6 +84,7 @@ def main():
         if secret is None or len(secret) != 1:
             print("Error: When running once, you must provide exactly one secret column.")
             sys.exit(1)
+    verbose = args.verbose
 
     # Print the parsed arguments
     print(f"Data: {data}")
@@ -87,8 +92,9 @@ def main():
     print(f"Secret: {secret}")
     print(f"Known columns: {known}")
     print(f"Run once: {run_once}")
+    print(f"Verbose: {verbose}")
 
-    launch_attack(data=data, name=name, secret=secret, known=known, run_once=run_once)
+    launch_attack(data=data, name=name, secret=secret, known=known, run_once=run_once, verbose=verbose)
 
 if __name__ == "__main__":
     main()
