@@ -1,17 +1,25 @@
 # Best run_brm_attack.py
 
-This code example runs the Best Row Match attack found in `alc_attacks/best_row_match/`.
+This code example runs the Best Row Match attack found in `anonymity_loss_coefficient/attacks/best_row_match/`.
 
 It can be used either as an example for how to write your own code to run the Best Row Match attack, or it can be used as a complete attack itself.
 
 ## To run
 
-Pip install `alc_attacks`.
+Pip install `anonymity_loss_coefficient`.
 
 * Setup the original and anonymous files as described below.
-* Run `python run_brm_attack.py attack /path/to/attack_directory`, where `/path/to/attack_directory` is the location of the files you setup.
+* Run `python run_brm_attack.py --data /path/to/attack_directory`, where `/path/to/attack_directory` is the location of the files you setup.
 
-Alternatively, use the setup directories already setup in the `files` directory. In this case, copy `files/attack_files_anon` or `files/attack_files_raw` to your `/path/to/attack_directory` and run as above.
+`run_brm_attack.py` has the following options:
+* -d or --data: <path to attack directory>
+* -s or --secret: the secret columns that you wish to attack, supplied as a list of column names separated by spaces. If not supplied, assumes that all columns are secret.
+* -k or --known: the known columns that you wish to attack, supplied as a list of column names separated by spaces. If not supplied, assumes that all columns are known columns.
+* -1 or --one: if set, then run exactly one attack on the supplied secret column and (if present) the supplied known columns. If not set, then a variety of known column combinations, taken from the columns listed in --known (if any), will be attacked.
+
+Note that `run_brm_attack.py` updates its results after every run. If --one is not supplied, then there can be a large number of known columns and secret column combinations (hundreds), and `run_brm_attack.py` will simply continue to generate more results until you stop it.
+
+For quick testing, use the setup directories already setup in the `files` directory. In this case, copy `files/attack_files_anon` or `files/attack_files_raw` to your `/path/to/attack_directory` and run as above.
 
 ## Setup
 
