@@ -4,6 +4,7 @@ from typing import Optional, Dict, List, Union, Any, Tuple, Generator
 import numpy as np
 import pandas as pd
 import logging
+import random
 from .reporting import *
 from .data_files import DataFiles
 from .baseline_predictor import BaselinePredictor
@@ -58,7 +59,7 @@ class ALCManager:
         self.results = []
         self.si_confidence = si_confidence
         self.si_type = si_type
-        self.si = ScoreInterval(si_type=self.si_type, si_confidence=self.si_confidence)
+        self.si = ScoreInterval(si_type=self.si_type, si_confidence=self.si_confidence, logger=self.logger)
         self.si_secret = ''
         self.si_known_columns = []
         self.df_secret_known_results = None
@@ -81,7 +82,7 @@ class ALCManager:
     def predictor(self,
                   known_columns: List[str],
                   secret_col: str,
-                  ) -> Generator[Tuple[pd.DataFrame, Any, Any], None, None]:
+                  ) -> Generator[Tuple[pd.DataFrame, Any, Any, bool], None, None]:
         """
         This is the main method of the ALCManager class. It is a generator that yields
         the rows to use in an attack. It makes one baseline prediction per loop. The
@@ -90,8 +91,11 @@ class ALCManager:
         """
         # Establish the targets to ignore, if any, and make a ScoreInterval object
         # for the halting decision.
-        ignore_encoded_targets = self._get_targets_to_ignore_for_halting(secret_col)
-        si_halt = ScoreInterval(si_type=self.si_type, si_confidence=self.si_confidence)
+        ignore_value, ignore_fraction = self._get_target_to_ignore_for_halting(secret_col)
+        if ignore_value is not None:
+            decoded_ignore_value = self.decode_value(secret_col, ignore_value)
+            self.logger.info(f"The value {decoded_ignore_value} constitutes {round((100*(1-ignore_fraction)),2)} % of column {secret_col}, so we'll ignore a proportional fraction of those values in the attacks so that our results are better balanced.")
+        si_halt = ScoreInterval(si_type=self.si_type, si_confidence=self.si_confidence, logger=self.logger)
 
         # Initialize the first set of control rows
         self.init_cntl_and_build_model(known_columns, secret_col)
@@ -100,7 +104,6 @@ class ALCManager:
         self.halt_info = {'halted': False, 'reason': 'halt not yet checked', 'num_attacks': 1}
         while True:
             for i in range(len(self.df.cntl)):
-                num_attacks += 1
                 # Get one base and attack measure at a time, and continue until we have
                 # enough confidence in the results
                 atk_row = self.df.cntl.iloc[[i]]
@@ -113,11 +116,12 @@ class ALCManager:
 
                 # Determine if the row should be ignored or not for the purpose of
                 # the halting criteria.
-                if self.encoded_true_value not in ignore_encoded_targets:
-                    si_halt_to_use = si_halt
-                else:
-                    si_halt_to_use = None
-                self._model_prediction(atk_row, secret_col, known_columns, si_halt_to_use)
+                if (ignore_value is not None and
+                    self.encoded_true_value == ignore_value and
+                    random.random() > ignore_fraction):
+                    continue
+                num_attacks += 1
+                self._model_prediction(atk_row, secret_col, known_columns, si_halt)
 
                 # The attacker only needs to know the values of the known_columns for the
                 # purpose of running the attack, so we separate them out.
@@ -140,7 +144,7 @@ class ALCManager:
                                 encoded_predicted_value=self.encoded_predicted_value,
                                 encoded_true_value=self.encoded_true_value,
                                 attack_confidence=self.prediction_confidence,
-                                si_halt=si_halt_to_use)
+                                si_halt=si_halt)
                 if num_attacks % self.halt_check_count == 0:
                     # This check is a bit expensive, so by default don't do it every time
                     self.halt_info = self._ok_to_halt(si_halt)
@@ -185,17 +189,29 @@ class ALCManager:
                          base_confidence=proba,
                          si_halt=si_halt)
 
-    def _get_targets_to_ignore_for_halting(self, column: str) -> list:
-        '''
+    def _get_target_to_ignore_for_halting(self, column: str) -> Tuple[Optional[Any], float]:
+        """
         With respect to the halting decision, we want to ignore column values that are
         too common because then we won't get an adequate sampling of other column values.
         We put the threshold above 0.5 because we don't want to ignore a value in a
         well-balanced binary column.
-        '''
-        value_counts = self.df.orig_all[column].value_counts(normalize=True)
-        ignore_targets = value_counts[(value_counts > 0.6)].index.tolist()
-        return ignore_targets
 
+        This version computes the normalized count of the largest normalized count.
+        If that count is > 0.6, it returns the value and (1 - count).
+        """
+        # Compute normalized value counts
+        value_counts = self.df.orig_all[column].value_counts(normalize=True)
+
+        # Find the value with the largest normalized count
+        max_value = value_counts.idxmax()
+        max_count = value_counts.max()
+
+        # Check if the largest normalized count exceeds the threshold
+        if max_count > 0.6:
+            return max_value, 1 - max_count
+
+        # If no value exceeds the threshold, return None
+        return None, 0.0
 
     def _get_results_dict(self) -> List[Dict[str, Any]]:
         return self.results
@@ -387,8 +403,7 @@ class ALCManager:
         if predict_type == 'attack':
             confidence = attack_confidence
         self.si.add_prediction(prediction, confidence, predict_type)
-        if si_halt is not None:
-            si_halt.add_prediction(prediction, confidence, predict_type)
+        si_halt.add_prediction(prediction, confidence, predict_type)
 
     def _check_for_si_reset(self, known_columns: List[str], secret_col: str) -> None:
         if self.si_secret != secret_col or self.si_known_columns != known_columns:
@@ -409,6 +424,8 @@ class ALCManager:
         if len(si_halt.df_base) < 10 or len(si_halt.df_attack) < 10:
             return {'halted': False, 'reason': f'not enough samples {len(si_halt.df_base)} base, {len(si_halt.df_attack)} attack'}
         alc_scores = si_halt.get_alc_scores(si_halt.df_base, si_halt.df_attack, max_score_interval=self.max_score_interval)
+        # put the values of alc_scores['paired'] into a list called paired
+        paired = [score['paired'] for score in alc_scores]
         if len(alc_scores) == 0:
             return {'halted': False, 'reason':f'no alc scores with attack and base score intervals < {self.max_score_interval}'}
         best_alc_score, alc_scores = si_halt.split_scores(alc_scores)

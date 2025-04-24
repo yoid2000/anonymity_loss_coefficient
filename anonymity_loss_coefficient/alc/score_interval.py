@@ -1,6 +1,7 @@
 
 import numpy as np
 import pandas as pd
+import logging
 from typing import Dict, List, Tuple, Optional, Any
 from scipy.stats import norm
 from .anonymity_loss_coefficient import AnonymityLossCoefficient
@@ -10,11 +11,13 @@ class ScoreInterval:
     def __init__(self, si_type: str = defaults['si_type'],
                        si_confidence: float = defaults['si_confidence'],
                        halt_interval_thresh: float = defaults['halt_interval_thresh'],
+                       logger: logging.Logger = None,
                        ) -> None:
         if si_type not in self.valid_measures():
             raise ValueError(f"Error: Invalid measure {si_type}. Use one of {self.valid_measures()}")
         if si_confidence < 0 or si_confidence > 1:
             raise ValueError(f"Error: Invalid condifence {si_confidence}. Must be between 0 and 1")
+        self.logger = logger
         self.halt_interval_thresh = halt_interval_thresh
         self.si_type = si_type
         self.si_confidence = si_confidence
@@ -50,7 +53,7 @@ class ScoreInterval:
 
     def get_alc_scores(self, df_base: pd.DataFrame,
                              df_attack: pd.DataFrame,
-                             max_score_interval: float = 0.5,
+                             max_score_interval: float = defaults['max_score_interval'],
                              ) -> List[Dict]:
         '''
         df_base and df_attack are the dataframes containing only the set of predictions
@@ -82,6 +85,7 @@ class ScoreInterval:
             attack_low, attack_high = self.compute_precision_interval(n = len(df_atk_conf),
                                                               precision = attack_prec_as_sampled)
             attack_si = attack_high - attack_low
+            # Note that default max_score_interval is 0.5
             if attack_si > max_score_interval or base_si > max_score_interval:
                 continue
             alc_as_sampled = self.alc.alc(p_base=base_prec_as_sampled, r_base=base_recall, p_attack=attack_prec_as_sampled, r_attack=attack_recall)
