@@ -63,6 +63,7 @@ class ScoreInterval:
         # sort df_base by base_confidence descending
         df_base = df_base.sort_values(by='base_confidence', ascending=False)
         atk_confs = sorted(df_attack['attack_confidence'].unique(), reverse=True)
+        atk_confs = [x for x in atk_confs if pd.notna(x)]
         # limit atk_confs to 10 values, because there can be very many
         atk_confs = _select_evenly_distributed_values(atk_confs)
         for atk_conf in atk_confs:
