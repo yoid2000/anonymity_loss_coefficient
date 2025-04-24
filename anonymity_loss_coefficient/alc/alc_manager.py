@@ -8,6 +8,7 @@ from .reporting import *
 from .data_files import DataFiles
 from .baseline_predictor import BaselinePredictor
 from .score_interval import ScoreInterval
+from .anonymity_loss_coefficient import AnonymityLossCoefficient
 from anonymity_loss_coefficient.utils import setup_logging
 import pprint
 pp = pprint.PrettyPrinter(indent=4)
@@ -23,9 +24,12 @@ class ALCManager:
                        si_type: str = 'wilson_score_interval',
                        si_confidence: float = 0.95,
                        max_score_interval: float = 0.5,
-                       halt_thresh_low = 0.4,
+                       halt_thresh_low = 0.25,
                        halt_thresh_high = 0.9,
                        halt_interval_thresh = 0.1,
+                       halt_min_significant_attack_prcs = 3,
+                       halt_min_prc_improvement = 0.01,
+                       halt_check_count = 20,
                        random_state: Optional[int] = None
                        ) -> None:
         self.df = DataFiles(
@@ -38,11 +42,15 @@ class ALCManager:
         )
         self.logger = logger
         self.base_pred = BaselinePredictor()
+        self.alc = AnonymityLossCoefficient()
         self.random_state = random_state
         self.max_score_interval = max_score_interval
         self.halt_thresh_low = halt_thresh_low
         self.halt_thresh_high = halt_thresh_high
         self.halt_interval_thresh = halt_interval_thresh
+        self.halt_min_significant_attack_prcs = halt_min_significant_attack_prcs
+        self.halt_min_prc_improvement = halt_min_prc_improvement
+        self.halt_check_count = halt_check_count
         self.summary_path_csv = None
         self.all_known_columns = []
         self.all_secret_columns = []
@@ -88,7 +96,7 @@ class ALCManager:
         self.init_cntl_and_build_model(known_columns, secret_col)
 
         num_attacks = 0
-        self.halt_info = {'halted': False, 'reason': 'loop not started', 'num_attacks': 0}
+        self.halt_info = {'halted': False, 'reason': 'halt not yet checked', 'num_attacks': 1}
         while True:
             for i in range(len(self.df.cntl)):
                 num_attacks += 1
@@ -132,7 +140,9 @@ class ALCManager:
                                 encoded_true_value=self.encoded_true_value,
                                 attack_confidence=self.prediction_confidence,
                                 si_halt=si_halt_to_use)
-                self.halt_info = self._ok_to_halt(si_halt)
+                if num_attacks % self.halt_check_count == 0:
+                    # This check is a bit expensive, so by default don't do it every time
+                    self.halt_info = self._ok_to_halt(si_halt)
                 self.halt_info.update({'num_attacks': num_attacks})
                 self.logger.debug(pp.pformat(self.halt_info))
                 if self.halt_info['halted'] is True:
@@ -385,34 +395,48 @@ class ALCManager:
             self.si_known_columns = known_columns
             self.si.reset()
 
+    def _get_significant_attack_prcs(self, alc_scores: List[Dict[str, Any]]) -> List[float]:
+        attack_prcs = []
+        alc_scores = sorted(alc_scores, key=lambda x: x['attack_recall'], reverse=True)
+        for score in alc_scores:
+            if score['attack_si'] > self.halt_interval_thresh:
+                return attack_prcs
+            attack_prcs.append(score['attack_prc'])
+        return attack_prcs
+
     def _ok_to_halt(self, si_halt: ScoreInterval) -> Dict[str, Any]:
         if len(si_halt.df_base) < 10 or len(si_halt.df_attack) < 10:
-            return {'halted': False, 'reason': 'not enough samples'}
+            return {'halted': False, 'reason': f'not enough samples {len(si_halt.df_base)} base, {len(si_halt.df_attack)} attack'}
         alc_scores = si_halt.get_alc_scores(si_halt.df_base, si_halt.df_attack, max_score_interval=self.max_score_interval)
         if len(alc_scores) == 0:
-            return {'halted': False, 'reason':f'no alc scores with attack_si and base_si < {self.max_score_interval}'}
-        # sort alc_scores by 'alc' descending
-        alc_scores.sort(key=lambda x: x['alc'], reverse=True)
-        max_alc = alc_scores[0]
-        ret = {'alc_low': float(round(max_alc['alc_low'], 3)),
-               'alc_high': float(round(max_alc['alc_high'], 3)),
-               'alc': float(round(max_alc['alc'], 3)),
-               'attack_si': float(round(max_alc['attack_si'], 3)),
-               'base_si': float(round(max_alc['base_si'], 3)),
-               'attack_recall': float(round(max_alc['attack_recall'], 3)),
-               'base_recall': float(round(max_alc['base_recall'], 3)),
-               'base_n': max_alc['base_n'],
-               'attack_n': max_alc['attack_n'],
-               }
+            return {'halted': False, 'reason':f'no alc scores with attack and base score intervals < {self.max_score_interval}'}
+        best_alc_score, alc_scores = si_halt.split_scores(alc_scores)
+        if best_alc_score is None:
+            return {'halted': False, 'reason':f'no prc scores with attack and base score intervals < {self.halt_interval_thresh}'}
+
+        ret = best_alc_score
         if ret['alc_high'] < self.halt_thresh_low:
             ret.update({'halted':True, 'reason':'alc extremely low'})
             return ret
         if ret['alc_low'] > self.halt_thresh_high:
             ret.update({'halted':True, 'reason':'alc extremely high'})
             return ret
-        if (max_alc['attack_si'] <= self.halt_interval_thresh and
-            max_alc['base_si'] <= self.halt_interval_thresh):
-            ret.update({'halted':True, 'reason':'attack and base precision interval within bounds'})
+        # We didn't halt because of extreme high or low ALC, so now we want to determine
+        # if further attacks are likely to yield a better ALC.
+        # Sort alc_scores from highest to lowest 'attack_recall'
+        attack_prcs = self._get_significant_attack_prcs(alc_scores)
+        if len(attack_prcs) == len(alc_scores) and len(si_halt.df_base) > 200 or len(si_halt.df_attack) > 200:
+            # This occurs if all alc_scores are significant (have attack_si and
+            # base_si < halt_interval_thresh). Further attacks will only normally reduce
+            # the already measured precision score intervals, not yield still lower
+            # recall values.
+            ret.update({'halted':True, 'reason':f'all {len(attack_prcs)} attack prc measures significant'})
+            return ret
+        if len(attack_prcs) < self.halt_min_significant_attack_prcs:
+            ret.update({'halted':False, 'reason':f'too few significant attack prc measures ({len(attack_prcs)})'})
+            return ret
+        if attack_prcs[-1] - attack_prcs[-2] < self.halt_min_prc_improvement:
+            ret.update({'halted':True, 'reason':f'attack prc measures not improving more than {self.halt_min_prc_improvement}'})
             return ret
         ret.update({'halted':False, 'reason':'halt conditions not met'})
         return ret

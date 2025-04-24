@@ -25,6 +25,7 @@ class BrmAttack:
                  confidence_level: float = 0.95,
                  attack_name: str = '',
                  verbose: bool = False,
+                 no_counter: bool = True,
                  ) -> None:
         # up to work with ML modeling
         self.results_path = results_path
@@ -41,6 +42,7 @@ class BrmAttack:
         file_level = logging.INFO
         if verbose:
             file_level = logging.DEBUG
+        self.no_counter = no_counter
         self.logger = setup_logging(log_file_path=logger_path, file_level=file_level)
         self.logger.info(f"Original columns: {self.original_columns}")
         self.alcm = ALCManager(df_original, df_synthetic, logger=self.logger,)
@@ -70,7 +72,7 @@ class BrmAttack:
         if known_columns is None:
             # select a set of original rows to use for the attack
             known_columns = self.all_known_columns
-        self.logger.info(f"Attack secret column {secret_col}\n    assuming {len(known_columns)} known columns {known_columns}")
+        self.logger.info(f"\nAttack secret column {secret_col}\n    assuming {len(known_columns)} known columns {known_columns}")
         counter = 1
         for atk_row, _, _ in self.alcm.predictor(known_columns, secret_col):
             encoded_predicted_value, prediction_confidence = self._best_row_attack(atk_row, secret_col, known_columns)
@@ -79,7 +81,15 @@ class BrmAttack:
             if counter % 100 == 0:
                 self.alcm.summarize_results(results_path = self.results_path,
                                         attack_name = self.attack_name, with_plot=False, with_text=False)
+            if self.no_counter is False:
+                if 'alc' in self.alcm.halt_info:
+                    print(f"\r{counter} alc:{self.alcm.halt_info['alc']} {self.alcm.halt_info['reason']}", end="")
+                else:
+                    print(f"\r{counter} {self.alcm.halt_info['reason']}", end="")
+        if self.no_counter is False:
+            print("\r", end="")
         self.logger.info(f'''   Finished after {self.alcm.halt_info['num_attacks']} attacks with ALC {self.alcm.halt_info['alc'] if 'alc' in self.alcm.halt_info else 'unknown'} for reason "{self.alcm.halt_info['reason']}"''')
+
 
         self.alcm.summarize_results(results_path = self.results_path,
                                         attack_name = self.attack_name, with_plot=True)

@@ -10,7 +10,8 @@ def launch_attack(data: str,
                   secret: List[str] = None,
                   known: List[str] = None,
                   run_once: bool = False,
-                  verbose: verbose,
+                  verbose: bool = False,
+                  no_counter: bool = False,
                   ) -> None:
     if not os.path.isdir(data):
         print(f"Error: {data} is not a directory")
@@ -44,6 +45,7 @@ def launch_attack(data: str,
                     results_path=results_path,
                     attack_name = name,
                     verbose = verbose,
+                    no_counter = no_counter,
                     )
     if run_once:
         brm.run_one_attack(secret_col=secret[0], known_columns=known)
@@ -57,12 +59,13 @@ def main():
     parser = argparse.ArgumentParser(description="Process command-line options.")
 
     # Add arguments
-    parser.add_argument("-d", "--data", type=str, required=True, help="The path to the datasets.")
-    parser.add_argument("-n", "--name", type=str, default=None, required=False, help="The name you'd like to give the attack.")
+    parser.add_argument("-d", "--data", type=str, required=True, help="The path to the inputs/results directory.")
     parser.add_argument("-k", "--known", type=str, nargs='+', required=False, help="One or more known columns (separate by space). If not provided, all columns will be used.")
     parser.add_argument("-s", "--secret", type=str, nargs='+', required=False, help="One or more secret columns (separate by space). If not provided, all columns will be used.")
     parser.add_argument("-1", "--one", action="store_true", help="Run the attack once. If not included, runs multiple times.")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Logging at debug level. (Does not effect sysout.)")
+    parser.add_argument("-n", "--name", type=str, default=None, required=False, help="The name you'd like to give the attack.")
+    parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Logging at debug level. (Does not effect sysout.)")
+    parser.add_argument("-nc", "--no_counter", action="store_true", default=False, help="Disable status counter in sysout.)")
 
     # Parse the arguments
     args = parser.parse_args()
@@ -85,6 +88,7 @@ def main():
             print("Error: When running once, you must provide exactly one secret column.")
             sys.exit(1)
     verbose = args.verbose
+    no_counter = args.no_counter
 
     # Print the parsed arguments
     print(f"Data: {data}")
@@ -93,8 +97,9 @@ def main():
     print(f"Known columns: {known}")
     print(f"Run once: {run_once}")
     print(f"Verbose: {verbose}")
+    print(f"No counter: {no_counter}")
 
-    launch_attack(data=data, name=name, secret=secret, known=known, run_once=run_once, verbose=verbose)
+    launch_attack(data=data, name=name, secret=secret, known=known, run_once=run_once, verbose=verbose, no_counter=no_counter)
 
 if __name__ == "__main__":
     main()

@@ -11,8 +11,7 @@ def plot_alc_prec_best(df: pd.DataFrame,
                   file_path: str) -> None:
     if len(df) < 10:
         return
-    idx = df.groupby(['secret_column', 'known_columns'])['alc'].idxmax()
-    df_best = df.loc[idx].reset_index(drop=True)
+    df_best = df[df['paired'] == False].copy()
     _plot_alc_prec(df_best, strong_thresh, risk_thresh, attack_name, file_path)
 
 def plot_alc_prec(df: pd.DataFrame,
@@ -66,8 +65,7 @@ def plot_alc_best(df: pd.DataFrame,
                   file_path: str) -> None:
     if len(df) < 10:
         return
-    idx = df.groupby(['secret_column', 'known_columns'])['alc'].idxmax()
-    df_best = df.loc[idx].reset_index(drop=True)
+    df_best = df[df['paired'] == False].copy()
     _plot_alc(df_best, strong_thresh, risk_thresh, attack_name, file_path)
 
 def plot_alc(df: pd.DataFrame,

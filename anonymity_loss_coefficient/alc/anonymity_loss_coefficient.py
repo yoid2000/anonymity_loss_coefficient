@@ -49,9 +49,9 @@ class AnonymityLossCoefficient:
         return prc_attack - prc_base
 
     def _prc_improve_relative(self, prc_base: float, prc_attack: float) -> float:
-        if prc_base == 1.0:
+        if prc_base >= 1.0:
             prc_base = 0.99999999
-        if prc_attack == 1.0:
+        if prc_attack >= 1.0:
             prc_attack = 0.99999999
         return (prc_attack - prc_base) / (1.0 - prc_base)
 
@@ -65,6 +65,11 @@ class AnonymityLossCoefficient:
         ''' Generates the precision-recall-coefficient, PRC.
             prev is the precision of the attack, and recall is the recall.
         '''
+        # We do this adjusting because of floating point inaccuraccy
+        prec = min(prec, 1.0)
+        prec = max(prec, 0.0)
+        recall = min(recall, 1.0)
+        recall = max(recall, 0.0)
         if recall <= self._recall_adjust_min_intercept:
             return recall
         Rmin = self._recall_adjust_min_intercept

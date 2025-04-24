@@ -1,17 +1,19 @@
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from scipy.stats import norm
 from .anonymity_loss_coefficient import AnonymityLossCoefficient
 
 class ScoreInterval:
     def __init__(self, measure: str = "wilson_score_interval",
-                       confidence_level: float = 0.95) -> None:
+                       confidence_level: float = 0.95,
+                       halt_interval_thresh: float = 0.1) -> None:
         if measure not in self.valid_measures():
             raise ValueError(f"Error: Invalid measure {measure}. Use one of {self.valid_measures()}")
         if confidence_level < 0 or confidence_level > 1:
             raise ValueError(f"Error: Invalid condifence {confidence_level}. Must be between 0 and 1")
+        self.halt_interval_thresh = halt_interval_thresh
         self.measure = measure
         self.confidence_level = confidence_level
         self.df_base = pd.DataFrame(columns=['prediction', 'base_confidence'])
@@ -52,7 +54,7 @@ class ScoreInterval:
         df_base and df_attack are the dataframes containing only the set of predictions
         of interest (i.e. already grouped in some way).
         '''
-        score_info = []
+        alc_scores = []
         # sort df_base by base_confidence descending
         df_base = df_base.sort_values(by='base_confidence', ascending=False)
         atk_confs = sorted(df_attack['attack_confidence'].unique(), reverse=True)
@@ -73,14 +75,16 @@ class ScoreInterval:
             base_low, base_high = self.compute_precision_interval(n = len(df_base_conf),
                                                               precision = base_prec_as_sampled)
             base_si = base_high - base_low
+            base_prec = base_low + (base_si/2)
+            base_prc = self.alc.prc(prec=base_prec, recall=base_recall)
             attack_low, attack_high = self.compute_precision_interval(n = len(df_atk_conf),
                                                               precision = attack_prec_as_sampled)
             attack_si = attack_high - attack_low
             if attack_si > max_score_interval or base_si > max_score_interval:
                 continue
             alc_as_sampled = self.alc.alc(p_base=base_prec_as_sampled, r_base=base_recall, p_attack=attack_prec_as_sampled, r_attack=attack_recall)
-            base_prec = base_low + (base_si/2)
             attack_prec = attack_low + (attack_si/2)
+            attack_prc = self.alc.prc(prec=attack_prec, recall=attack_recall)
             # The lower bound uses the si_low of the attack and si_high of the base
             alc_low = self.alc.alc(p_base=base_high, r_base=base_recall,
                                 p_attack=attack_low, r_attack=attack_recall)
@@ -89,28 +93,107 @@ class ScoreInterval:
                                 p_attack=attack_high, r_attack=attack_recall)
             alc = self.alc.alc(p_base=base_prec, r_base=base_recall,
                                 p_attack=attack_prec, r_attack=attack_recall)
-            score_info.append({
-                'base_recall': base_recall,
-                'attack_recall': attack_recall,
-                'base_prec': base_prec,
-                'attack_prec': attack_prec,
+            alc_scores.append({
+                'paired': True,
                 'alc': alc,
+                'base_recall': base_recall,
+                'base_prec': base_prec,
+                'base_prc': base_prc,
+                'base_si': base_si,
+                'base_n': len(df_base_conf),
+                'attack_recall': attack_recall,
+                'attack_prec': attack_prec,
+                'attack_prc': attack_prc,
+                'attack_si': attack_si,
+                'attack_n': len(df_atk_conf),
                 'base_prec_as_sampled': base_prec_as_sampled,
                 'attack_prec_as_sampled': attack_prec_as_sampled,
                 'alc_as_sampled': alc_as_sampled,
                 'alc_low': alc_low,
                 'alc_high': alc_high,
-                'base_si': base_si,
                 'base_si_low': base_low,
                 'base_si_high': base_high,
-                'base_n': len(df_base_conf),
-                'attack_si': attack_si,
                 'attack_si_low': attack_low,
                 'attack_si_high': attack_high,
-                'attack_n': len(df_atk_conf),
             })
-        return score_info
+        # We alc_scores so far have closely matching base and attack recalls. However,
+        # we want to compute an ALC score using the best base and attack PRC values,
+        # even though they may have different recall values.
+        base_best_score, attack_best_score = self._get_score_from_max_significant_prcs(alc_scores)
+        if base_best_score is not None and attack_best_score is not None:
+            # Add non-paired "best" ALC score
+            # The lower bound ALC uses the si_low of the attack and si_high of the base
+            alc_low = self.alc.alc(p_base=base_best_score['base_si_high'],
+                                r_base=base_best_score['base_recall'],
+                                p_attack=attack_best_score['attack_si_low'],
+                                r_attack=attack_best_score['attack_recall'])
+            #print(f"\nalc_low: {alc_low} from p_base: {base_best_score['base_si_high']} p_attack: {attack_best_score['attack_si_low']}")
+            # The upper bound ALC is the reverse
+            alc_high = self.alc.alc(p_base=base_best_score['base_si_low'],
+                                    r_base=base_best_score['base_recall'],
+                                    p_attack=attack_best_score['attack_si_high'],
+                                    r_attack=attack_best_score['attack_recall'])
+            #print(f"\nalc_high: {alc_low} from p_base: {base_best_score['base_si_low']} p_attack: {attack_best_score['attack_si_high']}")
 
+            alc = self.alc.alc(p_base=base_best_score['base_prec'],
+                                    r_base=base_best_score['base_recall'],
+                                    p_attack=attack_best_score['attack_prec'],
+                                    r_attack=attack_best_score['attack_recall'])
+            alc_as_sampled = self.alc.alc(p_base=base_best_score['base_prec_as_sampled'],
+                                    r_base=base_best_score['base_recall'],
+                                    p_attack=attack_best_score['attack_prec_as_sampled'],
+                                    r_attack=attack_best_score['attack_recall'])
+            alc_scores.append({
+                'paired': False,
+                'alc': alc,
+                'base_recall': base_best_score['base_recall'],
+                'base_prec': base_best_score['base_prec'],
+                'base_prc': base_best_score['base_prc'],
+                'base_si': base_best_score['base_si'],
+                'base_n': base_best_score['base_n'],
+                'attack_recall': attack_best_score['attack_recall'],
+                'attack_prec': attack_best_score['attack_prec'],
+                'attack_prc': attack_best_score['attack_prc'],
+                'attack_si': attack_best_score['attack_si'],
+                'attack_n': attack_best_score['attack_n'],
+                'base_prec_as_sampled': base_best_score['base_prec_as_sampled'],
+                'attack_prec_as_sampled': attack_best_score['attack_prec_as_sampled'],
+                'alc_as_sampled': alc_as_sampled,
+                'alc_low': alc_low,
+                'alc_high': alc_high,
+                'base_si_low': base_best_score['base_si_low'],
+                'base_si_high': base_best_score['base_si_high'],
+                'attack_si_low': attack_best_score['attack_si_low'],
+                'attack_si_high': attack_best_score['attack_si_high'],
+            })
+        return _do_rounding(alc_scores)
+
+
+    def split_scores(self, alc_scores: List[Dict[str, Any]]) -> Tuple[Optional[List[Dict[str, Any]]], List[Dict[str, Any]]]:
+        best_score = None
+        for score in alc_scores:
+            if score['paired'] is False:
+                best_score = score
+                # remove score from alc_scores
+                alc_scores.remove(score)
+        return best_score, alc_scores
+
+
+    def _get_score_from_max_significant_prcs(self, alc_scores: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        base_alc_score = None
+        max_base_prc = -1.0
+        attack_alc_score = None
+        max_attack_prc = -1.0
+        for score in alc_scores:
+            if score['base_si'] > self.halt_interval_thresh or score['attack_si'] > self.halt_interval_thresh:
+                continue
+            if score['base_prc'] > max_base_prc:
+                max_base_prc = score['base_prc']
+                base_alc_score = score
+            if score['attack_prc'] > max_attack_prc:
+                max_attack_prc = score['attack_prc']
+                attack_alc_score = score
+        return base_alc_score, attack_alc_score
 
     def compute_precision_interval(self, n: int,
                                    precision: float) -> Tuple[float, float]:
@@ -140,7 +223,8 @@ class ScoreInterval:
 
 def _select_evenly_distributed_values(sorted_list):
     '''
-    This limits the number of values in the list to 10 values, evenly distributed
+    This limits the number of values in the list to 10 values, evenly distributed.
+    Note by the way that this is being used on the attack confidence values.
     '''
     if len(sorted_list) <= 10:
         return sorted_list
@@ -199,3 +283,10 @@ def _get_base_subset(df_base: pd.DataFrame, num_predictions: int) -> pd.DataFram
 
     # Return the subset of df_base
     return df_base.head(num_rows)
+
+def _do_rounding(alc_scores: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    for score in alc_scores:
+        for key in score.keys():
+            if isinstance(score[key], float) or isinstance(score[key], np.float64):
+                score[key] = float(round(score[key], 4))
+    return alc_scores
