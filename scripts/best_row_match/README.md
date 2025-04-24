@@ -17,6 +17,14 @@ Pip install `anonymity_loss_coefficient`.
 * -k or --known: the known columns that you wish to attack, supplied as a list of column names separated by spaces. If not supplied, assumes that all columns are known columns.
 * -1 or --one: if set, then run exactly one attack on the supplied secret column and (if present) the supplied known columns. If not set, then a variety of known column combinations, taken from the columns listed in --known (if any), will be attacked.
 
+Examples:
+* `python run_brm_attack.py --data /path/to/attack_directory`: Assigns every column as a secret column in turn, and then runs attacks using a variety of known column sets (starting with all known columns, and then finding the most promising smaller known column sets)
+* `python run_brm_attack.py --data /path/to/attack_directory --secret secret_col`: Runs attacks against secret column `secret_col` using a variety of known column sets (starting with all known columns, and then finding the most promising smaller known column sets)
+* `python run_brm_attack.py --data /path/to/attack_directory --secret secret_col --known col1 col2 col3 col4 col5 col6`: Runs attacks against secret column `secret_col` using a variety of known column sets taken only from the specified columns (col1 through col6)
+* `python run_brm_attack.py --data /path/to/attack_directory --secret secret_col --known col1 col2 col3 col4 col5 col6 --one`: Runs exactly one attack against secret column `secret_col` using the specified known columns (`col1` through `col6`)
+* `python run_brm_attack.py --data /path/to/attack_directory --secret scol1 scol2`: Runs attacks against secret columns `scol1` and `scol2` using a variety of known column sets (starting with all known columns, and then finding the most promising smaller known column sets)
+
+
 Note that `run_brm_attack.py` updates its results after every run. If --one is not supplied, then there can be a large number of known columns and secret column combinations (hundreds), and `run_brm_attack.py` will simply continue to generate more results until you stop it.
 
 For quick testing, use the setup directories already setup in the `files` directory. In this case, copy `files/attack_files_anon` or `files/attack_files_raw` to your `/path/to/attack_directory` and run as above.
