@@ -9,6 +9,7 @@ from .data_files import DataFiles
 from .baseline_predictor import BaselinePredictor
 from .score_interval import ScoreInterval
 from .anonymity_loss_coefficient import AnonymityLossCoefficient
+from .defaults import defaults
 from anonymity_loss_coefficient.utils import setup_logging
 import pprint
 pp = pprint.PrettyPrinter(indent=4)
@@ -18,18 +19,18 @@ class ALCManager:
     def __init__(self, df_original: pd.DataFrame,
                        df_synthetic: Union[pd.DataFrame, List[pd.DataFrame]],
                        logger: logging.Logger = None,
-                       disc_max: int = 50,
-                       disc_bins: int = 20,
-                       discretize_in_place: bool = False,
-                       si_type: str = 'wilson_score_interval',
-                       si_confidence: float = 0.95,
-                       max_score_interval: float = 0.5,
-                       halt_thresh_low = 0.25,
-                       halt_thresh_high = 0.9,
-                       halt_interval_thresh = 0.1,
-                       halt_min_significant_attack_prcs = 3,
-                       halt_min_prc_improvement = 0.01,
-                       halt_check_count = 20,
+                       disc_max: int = defaults['disc_max'],
+                       disc_bins: int = defaults['disc_bins'],
+                       discretize_in_place: bool = defaults['discretize_in_place'],
+                       si_type: str = defaults['si_type'],
+                       si_confidence: float = defaults['si_confidence'],
+                       max_score_interval: float = defaults['max_score_interval'],
+                       halt_thresh_low = defaults['halt_thresh_low'],
+                       halt_thresh_high = defaults['halt_thresh_high'],
+                       halt_interval_thresh = defaults['halt_interval_thresh'],
+                       halt_min_significant_attack_prcs = defaults['halt_min_significant_attack_prcs'],
+                       halt_min_prc_improvement = defaults['halt_min_prc_improvement'],
+                       halt_check_count = defaults['halt_check_count'],
                        random_state: Optional[int] = None
                        ) -> None:
         self.df = DataFiles(
@@ -57,7 +58,7 @@ class ALCManager:
         self.results = []
         self.si_confidence = si_confidence
         self.si_type = si_type
-        self.si = ScoreInterval(measure=self.si_type, confidence_level=self.si_confidence)
+        self.si = ScoreInterval(si_type=self.si_type, si_confidence=self.si_confidence)
         self.si_secret = ''
         self.si_known_columns = []
         self.df_secret_known_results = None
@@ -90,7 +91,7 @@ class ALCManager:
         # Establish the targets to ignore, if any, and make a ScoreInterval object
         # for the halting decision.
         ignore_encoded_targets = self._get_targets_to_ignore_for_halting(secret_col)
-        si_halt = ScoreInterval(measure=self.si_type, confidence_level=self.si_confidence)
+        si_halt = ScoreInterval(si_type=self.si_type, si_confidence=self.si_confidence)
 
         # Initialize the first set of control rows
         self.init_cntl_and_build_model(known_columns, secret_col)

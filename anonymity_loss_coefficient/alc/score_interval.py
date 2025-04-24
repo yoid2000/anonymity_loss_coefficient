@@ -4,18 +4,20 @@ import pandas as pd
 from typing import Dict, List, Tuple, Optional, Any
 from scipy.stats import norm
 from .anonymity_loss_coefficient import AnonymityLossCoefficient
+from .defaults import defaults
 
 class ScoreInterval:
-    def __init__(self, measure: str = "wilson_score_interval",
-                       confidence_level: float = 0.95,
-                       halt_interval_thresh: float = 0.1) -> None:
-        if measure not in self.valid_measures():
-            raise ValueError(f"Error: Invalid measure {measure}. Use one of {self.valid_measures()}")
-        if confidence_level < 0 or confidence_level > 1:
-            raise ValueError(f"Error: Invalid condifence {confidence_level}. Must be between 0 and 1")
+    def __init__(self, si_type: str = defaults['si_type'],
+                       si_confidence: float = defaults['si_confidence'],
+                       halt_interval_thresh: float = defaults['halt_interval_thresh'],
+                       ) -> None:
+        if si_type not in self.valid_measures():
+            raise ValueError(f"Error: Invalid measure {si_type}. Use one of {self.valid_measures()}")
+        if si_confidence < 0 or si_confidence > 1:
+            raise ValueError(f"Error: Invalid condifence {si_confidence}. Must be between 0 and 1")
         self.halt_interval_thresh = halt_interval_thresh
-        self.measure = measure
-        self.confidence_level = confidence_level
+        self.si_type = si_type
+        self.si_confidence = si_confidence
         self.df_base = pd.DataFrame(columns=['prediction', 'base_confidence'])
         self.df_attack = pd.DataFrame(columns=['prediction', 'attack_confidence'])
         self.alc = AnonymityLossCoefficient()
@@ -201,10 +203,10 @@ class ScoreInterval:
         If n and precision are provided, use those values.
         returns precision, lower_bound, upper_bound, n
         '''
-        if self.measure == "wilson_score_interval":
+        if self.si_type == "wilson_score_interval":
             if n == 0:
                 return 0.0, 0.0
-            return self.compute_wilson_score_interval(n, precision, self.confidence_level)
+            return self.compute_wilson_score_interval(n, precision, self.si_confidence)
 
     def valid_measures(self) -> List[str]:
         return ["wilson_score_interval"]

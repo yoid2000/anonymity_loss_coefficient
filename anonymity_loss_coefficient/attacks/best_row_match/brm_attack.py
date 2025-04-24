@@ -19,10 +19,6 @@ class BrmAttack:
                  max_known_col_sets: int = 1000,
                  known_cols_sets_unique_threshold: float = 0.45,
                  num_per_secret_attacks: int = 100,
-                 max_rows_per_attack: int = 500,
-                 min_positive_predictions: int = 5,
-                 confidence_interval_tolerance: float = 0.1,
-                 confidence_level: float = 0.95,
                  attack_name: str = '',
                  verbose: bool = False,
                  no_counter: bool = True,
@@ -32,10 +28,6 @@ class BrmAttack:
         self.max_known_col_sets = max_known_col_sets
         self.known_cols_sets_unique_threshold = known_cols_sets_unique_threshold
         self.num_per_secret_attacks = num_per_secret_attacks
-        self.max_rows_per_attack = max_rows_per_attack
-        self.min_positive_predictions = min_positive_predictions
-        self.confidence_interval_tolerance = confidence_interval_tolerance
-        self.confidence_level = confidence_level
         self.attack_name = attack_name
         self.original_columns = df_original.columns.tolist()
         logger_path = os.path.join(results_path, 'brm_attack.log')
