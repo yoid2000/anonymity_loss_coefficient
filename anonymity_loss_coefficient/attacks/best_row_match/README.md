@@ -14,8 +14,6 @@ See `scripts/best_row_match/README.md` for details on running the attack on your
 
 We currently don't recognize datetime columns as datetime columns.
 
-We only input csv files. Should add parquet to this in the future.
-
 ## Interface
 
 `brm_attack.py` contains the `BrmAttack` class:

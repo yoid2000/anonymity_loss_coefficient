@@ -21,16 +21,34 @@ def launch_attack(data: str,
         print(f"Error: {inputs_path} does not exist or is not a directory")
         print(f"Your test files should be in {inputs_path}")
         sys.exit(1)
-    original_data_path = os.path.join(inputs_path, 'original.csv')
-    try:
-        df_original = pd.read_csv(original_data_path)
-    except Exception as e:
-        print(f"Error reading {original_data_path}")
-        print(f"Error: {e}")
+    # check to see that there is one and only one file in inputs_path with parquet extension
+    # There may be other files as well, but only one with parquet extension
+    files = os.listdir(inputs_path)
+    parquet_files = [f for f in files if f.endswith('.parquet')]
+    csv_files = [f for f in files if f.endswith('.csv')]
+    if len(parquet_files) == 1:
+        # preferentially use the parquet file
+        original_data_path = os.path.join(inputs_path, parquet_files[0])
+        # read the parquet file as a pandas dataframe
+        try:
+            df_original = pd.read_parquet(original_data_path)
+        except Exception as e:
+            print(f"Error reading {original_data_path}")
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif len(csv_files) == 1:
+        # use the csv file if there is no parquet file
+        original_data_path = os.path.join(inputs_path, csv_files[0])
+        try:
+            df_original = pd.read_csv(original_data_path)
+        except Exception as e:
+            print(f"Error reading {original_data_path}")
+            print(f"Error: {e}")
+            sys.exit(1)
+    else:
+        print(f"Error: There must be either exactly one original data file in {inputs_path} with a .parquet or .csv extension")
         sys.exit(1)
-    if not os.path.exists(original_data_path):
-        print(f"Error: {original_data_path} does not exist")
-        sys.exit(1)
+
     synthetic_path = os.path.join(inputs_path, 'synthetic_files')
     if not os.path.exists(synthetic_path) or not os.path.isdir(synthetic_path):
         print(f"Error: {synthetic_path} does not exist or is not a directory")
@@ -39,6 +57,8 @@ def launch_attack(data: str,
     for file in os.listdir(synthetic_path):
         if file.endswith('.csv'):
             syn_dfs.append(pd.read_csv(os.path.join(synthetic_path, file)))
+        elif file.endswith('.parquet'):
+            syn_dfs.append(pd.read_parquet(os.path.join(synthetic_path, file)))
     results_path = os.path.join(data, 'results')
     brm = BrmAttack(df_original=df_original,
                     df_synthetic=syn_dfs,

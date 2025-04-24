@@ -33,9 +33,9 @@ For quick testing, use the setup directories already setup in the `files` direct
 
 `run_brm_attack.py` expects to find everything it needs in `attack_directory/inputs`. Specifically, the following should be placed there:
 
-* `original.csv`: Contains the original data
+* `your_file_name.csv` or `your_file_name.parquet`: Contains the original data.
 
-* `synthetic_files`: This is a directory containing one or more synthetic datasets generated from the original data. Each of these files may have a subset of the columns in `original.csv`.
+* `synthetic_files`: This is a directory containing one or more synthetic datasets generated from the original data. Each of these files may have a subset of the columns from the original data. These can be `.csv` or `.parquet` files.
 
 Note that the larger the synthetic datasets are, the longer it'll take to run the tests. Therefore it might be a good idea to limit the synthetic datasets (and likewise the original data from which they were derived) to 10k-20k or so rows.
 
