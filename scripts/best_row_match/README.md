@@ -15,7 +15,8 @@ Pip install `anonymity_loss_coefficient`.
 * -d or --data: <path to attack directory>
 * -s or --secret: the secret columns that you wish to attack, supplied as a list of column names separated by spaces. If not supplied, assumes that all columns are secret.
 * -k or --known: the known columns that you wish to attack, supplied as a list of column names separated by spaces. If not supplied, assumes that all columns are known columns.
-* -1 or --one: if set, then run exactly one attack on the supplied secret column and (if present) the supplied known columns. If not set, then a variety of known column combinations, taken from the columns listed in --known (if any), will be attacked.
+* -1 or --one: if present, then run exactly one attack on the supplied secret column and (if present) the supplied known columns. If not set, then a variety of known column combinations, taken from the columns listed in --known (if any), will be attacked.
+* -f or --flush: If present, then any prior attacks that have been run and saved in the results directory of `/path/to/attack_directory` will be flushed out. If not present, then any attacks already run will not be run again.
 
 Examples:
 * `python run_brm_attack.py --data /path/to/attack_directory`: Assigns every column as a secret column in turn, and then runs attacks using a variety of known column sets (starting with all known columns, and then finding the most promising smaller known column sets)

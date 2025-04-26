@@ -11,6 +11,7 @@ class ScoreInterval:
     def __init__(self, si_type: str = defaults['si_type'],
                        si_confidence: float = defaults['si_confidence'],
                        halt_interval_thresh: float = defaults['halt_interval_thresh'],
+                       max_score_interval: float = defaults['max_score_interval'],
                        logger: logging.Logger = None,
                        ) -> None:
         if si_type not in self.valid_measures():
@@ -19,6 +20,7 @@ class ScoreInterval:
             raise ValueError(f"Error: Invalid condifence {si_confidence}. Must be between 0 and 1")
         self.logger = logger
         self.halt_interval_thresh = halt_interval_thresh
+        self.max_score_interval = max_score_interval
         self.si_type = si_type
         self.si_confidence = si_confidence
         self.df_base = pd.DataFrame(columns=['prediction', 'base_confidence'])
@@ -51,23 +53,20 @@ class ScoreInterval:
 
 
 
-    def get_alc_scores(self, df_base: pd.DataFrame,
-                             df_attack: pd.DataFrame,
-                             max_score_interval: float = defaults['max_score_interval'],
-                             ) -> List[Dict]:
+    def get_alc_scores(self) -> List[Dict]:
         '''
         df_base and df_attack are the dataframes containing only the set of predictions
         of interest (i.e. already grouped in some way).
         '''
         alc_scores = []
         # sort df_base by base_confidence descending
-        df_base = df_base.sort_values(by='base_confidence', ascending=False)
-        atk_confs = sorted(df_attack['attack_confidence'].unique(), reverse=True)
+        df_base = self.df_base.sort_values(by='base_confidence', ascending=False)
+        atk_confs = sorted(self.df_attack['attack_confidence'].unique(), reverse=True)
         atk_confs = [x for x in atk_confs if pd.notna(x)]
         # limit atk_confs to 10 values, because there can be very many
         atk_confs = _select_evenly_distributed_values(atk_confs)
         for atk_conf in atk_confs:
-            df_atk_conf = df_attack[df_attack['attack_confidence'] >= atk_conf]
+            df_atk_conf = self.df_attack[self.df_attack['attack_confidence'] >= atk_conf]
             num_predictions = len(df_atk_conf)
             df_base_conf = _get_base_subset(df_base, num_predictions)
             # df_atk_conf and df_base_conf are the rows that pertain to the specific
@@ -75,7 +74,7 @@ class ScoreInterval:
             base_prec_as_sampled = df_base_conf['prediction'].mean()
             base_recall = len(df_base_conf) / len(df_base)
             attack_prec_as_sampled = df_atk_conf['prediction'].mean()
-            attack_recall = len(df_atk_conf) / len(df_attack)
+            attack_recall = len(df_atk_conf) / len(self.df_attack)
             base_si = None
             attack_si = None
             base_low, base_high = self.compute_precision_interval(n = len(df_base_conf),
@@ -87,7 +86,7 @@ class ScoreInterval:
                                                               precision = attack_prec_as_sampled)
             attack_si = attack_high - attack_low
             # Note that default max_score_interval is 0.5
-            if attack_si > max_score_interval or base_si > max_score_interval:
+            if attack_si > self.max_score_interval or base_si > self.max_score_interval:
                 continue
             alc_as_sampled = self.alc.alc(p_base=base_prec_as_sampled, r_base=base_recall, p_attack=attack_prec_as_sampled, r_attack=attack_recall)
             attack_prec = attack_low + (attack_si/2)

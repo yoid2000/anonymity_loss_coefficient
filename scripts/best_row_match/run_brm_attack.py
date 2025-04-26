@@ -12,6 +12,7 @@ def launch_attack(data: str,
                   run_once: bool = False,
                   verbose: bool = False,
                   no_counter: bool = False,
+                  flush: bool = False,
                   ) -> None:
     if not os.path.isdir(data):
         print(f"Error: {data} is not a directory")
@@ -66,6 +67,7 @@ def launch_attack(data: str,
                     attack_name = name,
                     verbose = verbose,
                     no_counter = no_counter,
+                    flush = flush,
                     )
     if run_once:
         brm.run_one_attack(secret_col=secret[0], known_columns=known)
@@ -86,6 +88,7 @@ def main():
     parser.add_argument("-n", "--name", type=str, default=None, required=False, help="The name you'd like to give the attack.")
     parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Logging at debug level. (Does not effect sysout.)")
     parser.add_argument("-nc", "--no_counter", action="store_true", default=False, help="Disable status counter in sysout.)")
+    parser.add_argument("-f", "--flush", action="store_true", default=False, help="Flushes out any already completed attack results.")
 
     # Parse the arguments
     args = parser.parse_args()
@@ -109,6 +112,7 @@ def main():
             sys.exit(1)
     verbose = args.verbose
     no_counter = args.no_counter
+    flush = args.flush
 
     # Print the parsed arguments
     print(f"Data: {data}")
@@ -118,8 +122,9 @@ def main():
     print(f"Run once: {run_once}")
     print(f"Verbose: {verbose}")
     print(f"No counter: {no_counter}")
+    print(f"Flush: {flush}")
 
-    launch_attack(data=data, name=name, secret=secret, known=known, run_once=run_once, verbose=verbose, no_counter=no_counter)
+    launch_attack(data=data, name=name, secret=secret, known=known, run_once=run_once, verbose=verbose, no_counter=no_counter, flush=flush)
 
 if __name__ == "__main__":
     main()

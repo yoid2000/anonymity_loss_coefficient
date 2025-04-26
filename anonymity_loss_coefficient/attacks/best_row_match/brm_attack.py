@@ -22,8 +22,10 @@ class BrmAttack:
                  attack_name: str = '',
                  verbose: bool = False,
                  no_counter: bool = True,
+                 flush: bool = False,
                  ) -> None:
         # up to work with ML modeling
+        self.flush = flush
         self.results_path = results_path
         self.max_known_col_sets = max_known_col_sets
         self.known_cols_sets_unique_threshold = known_cols_sets_unique_threshold
@@ -37,7 +39,12 @@ class BrmAttack:
         self.no_counter = no_counter
         self.logger = setup_logging(log_file_path=logger_path, file_level=file_level)
         self.logger.info(f"Original columns: {self.original_columns}")
-        self.alcm = ALCManager(df_original, df_synthetic, logger=self.logger,)
+        self.alcm = ALCManager(df_original,
+                               df_synthetic,
+                               results_path = self.results_path,
+                               attack_name = self.attack_name,
+                               logger=self.logger,
+                               flush=self.flush)
         # The known columns are the pre-discretized continuous columns and categorical
         # columns (i.e. all original columns). The secret columns are the discretized
         # continuous columns and categorical columns.
@@ -70,9 +77,6 @@ class BrmAttack:
             encoded_predicted_value, prediction_confidence = self._best_row_attack(atk_row, secret_col, known_columns)
             self.alcm.prediction(encoded_predicted_value, prediction_confidence)
             counter += 1
-            if counter % 100 == 0:
-                self.alcm.summarize_results(results_path = self.results_path,
-                                        attack_name = self.attack_name, with_plot=False, with_text=False)
             if self.no_counter is False:
                 if 'alc' in self.alcm.halt_info:
                     print(f"\r{counter} alc:{self.alcm.halt_info['alc']} {self.alcm.halt_info['reason']}", end="")
@@ -83,8 +87,7 @@ class BrmAttack:
         self.logger.info(f'''   Finished after {self.alcm.halt_info['num_attacks']} attacks with ALC {self.alcm.halt_info['alc'] if 'alc' in self.alcm.halt_info else 'unknown'} for reason "{self.alcm.halt_info['reason']}"''')
 
 
-        self.alcm.summarize_results(results_path = self.results_path,
-                                        attack_name = self.attack_name, with_plot=True)
+        self.alcm.summarize_results(with_plot=True)
 
     def run_auto_attack(self, secret_cols: List[str] = None, known_columns: List[str] = None) -> None:
         '''

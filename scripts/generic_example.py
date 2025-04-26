@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import List, Any, Tuple
-from alc import ALCManager
+from anonymity_loss_coefficient import ALCManager
 import pprint
 import warnings
 #warnings.filterwarnings('error')
@@ -85,10 +85,10 @@ print('Assume that 4 anonymized datasets have been generated from `df_original`.
 syn_data = [anonymize_data(df_original) for _ in range(4)]
 
 print("\nAt this point, we have prepared the dataframes needed for the ALC measures.")
-print("\nThe ALCManager class is used for all operations. It prepares the data, runs the baseline model, holds the various predictions, computes the ALC measures, and writes the results to files.\n" \
-"\nTo prepare the data, it removes NaN rows, discretizes continuous variables, and encodes non-integer columns as integers. Note in particular that, unless the optional parameter `discertize_in_place` is set to True, it creates a new column for each discretized column, given the name `colname__discretized`. The original column is also kept. The discretized column should be used for the secret column, while the original column should be used for the known column.")
-print('''\n`alcm = ALCManager(df_original, syn_data)`''')
-alcm = ALCManager(df_original, syn_data, random_state=42)
+print("\nThe `ALCManager` class is used for all operations. It prepares the data, runs the baseline model, holds the various predictions, computes the ALC measures, and writes the results to files.\n" \
+"\nTo prepare the data, it removes NaN rows, discretizes continuous variables, and encodes non-integer columns as integers. Note in particular that, unless the optional parameter `discertize_in_place` is set to True, it creates a new column for each discretized column, given the name `colname__discretized`. The original column is also kept. The discretized column should be used for the secret column, while the original column should be used for the known column. The `flush` parameter (default `False`) tells the `ALCManager` to remove all previously recorded attacks. If set to `False`, the `ALCManager` will not repeat any attacks already run.")
+print('''\n`alcm = ALCManager(df_original, syn_data, results_path = "generic_example_files", attack_name = "Example Attacks", flush = True)`''')
+alcm = ALCManager(df_original, syn_data, results_path = "generic_example_files", attack_name = "Example Attacks", flush = True, random_state=42)
 print("\nWe see for instance that the text column 't1' has been encoded as integers, and two discretized columns have been created from the continuous columns:")
 print("\n`alcm.df.orig_all.head()`")
 cb()
@@ -149,9 +149,11 @@ cb()
 print(df_results[df_results['predict_type'] == 'attack'].iloc[0])
 cb()
 
-print("\nNote that attack_confidence is 1.0. For this particular type of attack, this means that all of the rows that matched the known columns agreed on the predicted value. Different predictions, however, may have different confidence levels. In this case, we see that, among the predictions, there are 3 unique confidence levels:")
+unique_levels = df_results[df_results['predict_type'] == 'attack']['attack_confidence'].unique()
 
-print("\n`df_results['attack_confidence'].unique())`")
+print(f"\nNote that attack_confidence is 1.0. For this particular type of attack, this means that all of the rows that matched the known columns agreed on the predicted value. Different predictions, however, may have different confidence levels. In this case, we see that, among the predictions, there are {len(unique_levels)} unique confidence levels:")
+
+print("\n`df_results[df_results['predict_type'] == 'attack']['attack_confidence'].unique()`")
 cb()
 print(df_results[df_results['predict_type'] == 'attack']['attack_confidence'].unique())
 cb()
@@ -161,12 +163,14 @@ print("\n`df_per_comb_results = alcm.alc_per_secret_and_known_df(known_columns=k
 df_per_comb_results = alcm.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)
 
 print("\nLet's look at the precision, recall, and ALC scores:")
-print("\n`df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']]`")
+print("\n`df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']]`")
 cb()
-print(df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
+print(df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
 cb()
 
 print("\nAs it so happens, there is no correlation between 't1' and 'i2' or 'f1'. As a result, the baseline precision is always quite low, and different recall values don't really help. By contrast, because our anonymity is weak, attack precision is high uniformly high, so as it happens recall doesn't really matter here either. The fact that attack precision is greater than baseline precision leads to high ALC scores, showing that anonymity is indeed weak.")
+
+print("\nThe `paired` column indicates whether the ALC score is generated from a pair of closely-matched recall values for attack and baseline. If `False`, then the ALC score is generated from the best attack Privacy-Recall Coefficient (PRC) and the best baseline PRC regardless of recall. This represents the most appropriate ALC score (though in general not the highest ALC score).")
 
 print("\nLet's run a second attack, here assuming that the attacker knows the value of column 'i1' and wants to predict the value of column 't1'.")
 known_columns = ['i1']
@@ -178,20 +182,19 @@ for atk_row, _, _ in alcm.predictor(known_columns, secret_column):
 print("\nLet's look at the precision, recall, and ALC scores for the second attack:")
 df_per_comb_results = alcm.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)
 cb()
-print(df_per_comb_results[['base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
+print(df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
 cb()
 
 print("\nHere we see quite a different story. Since 'i1' and 't1' are perfectly correlated, all baseline predictions are correct. (The reason `base_prec` is not perfect is because of how we compute precision: as the midpoint of the confidence interval rather than the actual predictions. The actual sampled precision, however, is also computed and can be viewed.) As it so happens, all attack predictions are also correct. (In this case, `attack_prec` is lower for lower recall values only because the confidence bounds are larger.). Because the attack precision is no better than the base precision, the ALC is at best 0.0, meaning no loss of anonymity.")
 
 print("\nBesides being able to obtain the results as dataframes, the method `summarize_results()` writes the results to CSV files and can generate plots as well:")
 
-print('''\n`alcm.summarize_results(results_path = "generic_example_files", attack_name = "Example Attacks")`''')
-alcm.summarize_results(results_path = "generic_example_files", attack_name = "Example Attacks")
+print('''\n`alcm.summarize_results()`''')
+alcm.summarize_results()
 
 print('''
 This produces the following files (which can be viewed in the `generic_example_files` directory):
-* summary_raw.csv: All of the predictions
-* summary_secret.csv: The precision, recall, and ALC scores for predictions grouped by secret column
+* summary_raw.parquet: All of the predictions
 * summary_secret_known.csv: The precision, recall, and ALC scores for predictions grouped by secret column and known columns
 * summary.txt: A descriptive summary of the results
 

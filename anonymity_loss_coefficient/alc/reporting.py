@@ -1,9 +1,225 @@
+import os
 import pandas as pd
 import seaborn as sns
 import matplotlib
+import logging
+import json
+from typing import List, Optional, Dict
 matplotlib.use('Agg')  # This needed because of tkinter issues
 import matplotlib.pyplot as plt
+from .defaults import defaults
 
+class Reporter():
+    def __init__(self,
+                 results_path: str,
+                 attack_name: str,
+                 logger: logging.Logger,
+                 flush: bool = defaults['flush'],
+                 ) -> None:
+        self.results_path = results_path
+        os.makedirs(self.results_path, exist_ok=True)
+        self.attack_name = attack_name
+        self.logger = logger
+        self.all_used_known_columns = []
+        self.all_used_secret_columns = []
+        self.list_results = []
+        self.list_results_done = []
+        self.list_secret_known_results_done = []
+        self.df_secret_results = None
+        summary_raw_path = os.path.join(self.results_path, 'summary_raw.parquet')
+        summary_secret_known_path = os.path.join(self.results_path, 'summary_secret_known.csv')
+        self.df_already_attacked = None
+        if flush:
+            self._remove_file(summary_raw_path)
+            self._remove_file(summary_secret_known_path)
+        else:
+            # read the summary_raw_path if it exists and convert to a list of dicts
+            if os.path.exists(summary_raw_path):
+                if not os.path.exists(summary_secret_known_path):
+                    # throw an excption
+                    raise Exception(f"Either both {summary_raw_path} and {summary_secret_known_path} must exist or neither must exist.")
+                df = pd.read_parquet(summary_raw_path)
+                self.logger.info(f"Reading {summary_raw_path}. Found {len(df)} rows.")
+                self.list_results_done = df.to_dict(orient='records')
+            if os.path.exists(summary_secret_known_path):
+                if not os.path.exists(summary_raw_path):
+                    # throw an excption
+                    raise Exception(f"Either both {summary_raw_path} and {summary_secret_known_path} must exist or neither must exist.")
+                df = pd.read_csv(summary_secret_known_path)
+                self.list_secret_known_results_done = df.to_dict(orient='records')
+                self.logger.info(f"Reading {summary_secret_known_path}. Found {len(df)} rows.")
+                # get every distinct combination of secret_column and known_columns
+                self.df_already_attacked = df[['secret_column', 'known_columns']].drop_duplicates()
+                self.df_already_attacked = self.df_already_attacked.reset_index(drop=True)
+                self.logger.info(f"Found {len(self.df_already_attacked)} already attacked secret_column / known_columns combinations.")
+
+    def add_result(self, row: dict) -> None:
+        # Reset the results dataframes because they will be out of date after this add
+        self.list_results.append(row)
+
+    def already_attacked(self,
+                       secret_column: str,
+                       known_columns: List[str],
+                       ) -> bool:
+        if self.df_already_attacked is None:
+            return False
+        known_columns_str = self._make_known_columns_str(known_columns)
+        count = self.df_already_attacked[
+                (self.df_already_attacked['secret_column'] == secret_column) &
+                (self.df_already_attacked['known_columns'] == known_columns_str)
+                 ].shape[0]
+        if count > 0:
+            return True
+        return False
+
+    def add_known_columns(self, known_columns: List[str]) -> None:
+        self.all_used_known_columns += known_columns
+        self.all_used_known_columns = sorted(list(set(self.all_used_known_columns)))
+
+    def add_secret_column(self, secret_column: str) -> None:
+        self.all_used_secret_columns.append(secret_column)
+        self.all_used_secret_columns = sorted(list(set(self.all_used_secret_columns)))
+
+    def get_results_df(self,
+                       known_columns: Optional[List[str]] = None,
+                       secret_column: Optional[str] = None) -> pd.DataFrame:
+        df_results = pd.DataFrame(self.list_results_done)
+        return self._filter_df(df_results, known_columns, secret_column)
+
+    def alc_per_secret_and_known_df(self,
+                                 known_columns: Optional[List[str]] = None,
+                                 secret_column: Optional[str] = None) -> pd.DataFrame:
+        df_secret_known_results = pd.DataFrame(self.list_secret_known_results_done)
+        return self._filter_df(df_secret_known_results, known_columns, secret_column)
+
+    def _alc_per_secret_and_known(self, score_info: List[Dict]) -> List[Dict]:
+        # self.list_results contains the results of the latest attack only
+        df_in = pd.DataFrame(self.list_results)
+        df_in['prediction'] = df_in['predicted_value'] == df_in['true_value']
+        rows = []
+        base_group = df_in[df_in['predict_type'] == 'base']
+        attack_group = df_in[df_in['predict_type'] == 'attack']
+        base_count = len(base_group)
+        attack_count = len(attack_group)
+        num_known_columns = df_in['num_known_columns'].iloc[0]
+        # Note that known_columns is a string at this point
+        secret_col = df_in['secret_column'].iloc[0]
+        known_columns = df_in['known_columns'].iloc[0]
+        for score in score_info:
+            score['secret_column'] = secret_col
+            score['known_columns'] = known_columns
+            score['num_known_columns'] = num_known_columns
+            score['base_count'] = base_count
+            score['attack_count'] = attack_count
+            rows.append(score)
+        return rows
+
+
+    def _filter_df(self, df: pd.DataFrame,
+                  known_columns: Optional[List[str]] = None,
+                  secret_column: Optional[str] = None) -> pd.DataFrame:
+        if known_columns is not None:
+            known_columns_str = self._make_known_columns_str(known_columns)
+            df = df[df['known_columns'] == known_columns_str]
+        if secret_column is not None:
+            df = df[df['secret_column'] == secret_column]
+        return df
+
+    def _remove_file(self, file_path: str) -> None:
+        self.logger.info(f"Flushing {file_path}")
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except PermissionError:
+                self.logger.warning(f"Warning: The file at {file_path} is currently open in another application. You might want to make a copy of the file in order to view it while the attack is still executing.")
+            except Exception as e:
+                self.logger.error(f"Error: Failed to delete {file_path}: {e}")
+
+    def _make_known_columns_str(self, known_columns: List[str]) -> str:
+        return json.dumps(sorted(known_columns))
+
+    def consolidate_results(self, score_info: List[Dict]) -> None:
+        # move the results from the list to a dataframe
+        list_secret_known_results = self._alc_per_secret_and_known(score_info)
+        # At this point, self.list_results, and list_secret_known_results
+        # contain the results of the latest attack only
+        self.list_results_done += self.list_results
+        self.list_results = []
+        self.list_secret_known_results_done += list_secret_known_results
+
+    def summarize_results(self,
+                          strong_thresh: float = 0.5,
+                          risk_thresh: float = 0.7,
+                          with_text: bool = True,
+                          with_plot: bool = True,
+                          ) -> bool:
+        df_results = pd.DataFrame(self.list_results_done)
+        df_secret_known_results = pd.DataFrame(self.list_secret_known_results_done)
+        self.save_to_parquet(self.results_path, df_results, 'summary_raw.parquet')
+        self.save_to_csv(self.results_path, df_secret_known_results, 'summary_secret_known.csv')
+        if with_text:
+            text_summary = make_text_summary(df_secret_known_results,
+                                             strong_thresh,
+                                             risk_thresh,
+                                             self.all_used_secret_columns,
+                                             self.all_used_known_columns,
+                                             self.attack_name)
+            self.save_to_text(self.results_path, text_summary, 'summary.txt')
+        if with_plot:
+            plot_alc(df_secret_known_results,
+                        strong_thresh,
+                        risk_thresh,
+                        self.attack_name,
+                        os.path.join(self.results_path, 'alc_plot.png'))
+            plot_alc_prec(df_secret_known_results,
+                        strong_thresh,
+                        risk_thresh,
+                        self.attack_name,
+                        os.path.join(self.results_path, 'alc_prec_plot.png'))
+            plot_alc_best(df_secret_known_results,
+                        strong_thresh,
+                        risk_thresh,
+                        self.attack_name,
+                        os.path.join(self.results_path, 'alc_plot_best.png'))
+            plot_alc_prec_best(df_secret_known_results,
+                        strong_thresh,
+                        risk_thresh,
+                        self.attack_name,
+                        os.path.join(self.results_path, 'alc_prec_plot_best.png'))
+        return True
+
+
+    def save_to_text(self, results_path: str, text_summary: str, file_name: str) -> None:
+        save_path = os.path.join(results_path, file_name)
+        try:
+            with open(save_path, 'w') as f:
+                f.write(text_summary)
+        except PermissionError:
+            self.logger.warning(f"Warning: The file at {save_path} is currently open in another application. You might want to make a copy of the summary file in order to view it while the attack is still executing.")
+        except Exception as e:
+            self.logger.error(f"Error: Failed to write {save_path}: {e}")
+
+    def save_to_parquet(self, results_path, df: pd.DataFrame, file_name: str) -> None:
+        save_path = os.path.join(results_path, file_name)
+        try:
+            df.to_parquet(save_path, index=False)
+        except PermissionError:
+            self.logger.warning(f"Warning: The file at {save_path} is currently open in another application. You might want to make a copy of the file in order to view it while the attack is still executing.")
+        except Exception as e:
+            self.logger.error(f"Error: Failed to write {save_path}: {e}")
+
+    def save_to_csv(self, results_path, df: pd.DataFrame, file_name: str) -> None:
+        save_path = os.path.join(results_path, file_name)
+        try:
+            df.to_csv(save_path, index=False)
+        except PermissionError:
+            self.logger.warning(f"Warning: The file at {save_path} is currently open in another application. You might want to make a copy of the summary file in order to view it while the attack is still executing.")
+        except Exception as e:
+            self.logger.error(f"Error: Failed to write {save_path}: {e}")
+    
+
+def clean_up_results_files(results_path: str) -> None:
+    pass
 
 def plot_alc_prec_best(df: pd.DataFrame,
                   strong_thresh: float, risk_thresh: float,

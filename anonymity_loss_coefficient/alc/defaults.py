@@ -12,6 +12,7 @@ defaults = {
     'halt_min_significant_attack_prcs': 3,
     'halt_min_prc_improvement': 0.01,
     'halt_check_count': 20,
+    'flush': False,
 
     # From DataFiles
     'max_cntl_size': 1000,

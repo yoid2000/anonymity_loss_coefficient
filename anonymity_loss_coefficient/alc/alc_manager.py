@@ -1,5 +1,4 @@
 import os
-import json
 from typing import Optional, Dict, List, Union, Any, Tuple, Generator
 import numpy as np
 import pandas as pd
@@ -10,6 +9,7 @@ from .data_files import DataFiles
 from .baseline_predictor import BaselinePredictor
 from .score_interval import ScoreInterval
 from .anonymity_loss_coefficient import AnonymityLossCoefficient
+from .reporting import Reporter
 from .defaults import defaults
 from anonymity_loss_coefficient.utils import setup_logging
 import pprint
@@ -19,7 +19,10 @@ pp = pprint.PrettyPrinter(indent=4)
 class ALCManager:
     def __init__(self, df_original: pd.DataFrame,
                        df_synthetic: Union[pd.DataFrame, List[pd.DataFrame]],
+                       results_path: str,
+                       attack_name: str = '',
                        logger: logging.Logger = None,
+                       flush: bool = defaults['flush'],
                        disc_max: int = defaults['disc_max'],
                        disc_bins: int = defaults['disc_bins'],
                        discretize_in_place: bool = defaults['discretize_in_place'],
@@ -43,6 +46,9 @@ class ALCManager:
                  random_state=random_state,
         )
         self.logger = logger
+        if self.logger is None:
+            logger_path = os.path.join(results_path, 'alc_manager.log')
+            self.logger = setup_logging(log_file_path=logger_path)
         self.base_pred = BaselinePredictor()
         self.alc = AnonymityLossCoefficient()
         self.random_state = random_state
@@ -53,18 +59,16 @@ class ALCManager:
         self.halt_min_significant_attack_prcs = halt_min_significant_attack_prcs
         self.halt_min_prc_improvement = halt_min_prc_improvement
         self.halt_check_count = halt_check_count
-        self.summary_path_csv = None
-        self.all_known_columns = []
-        self.all_secret_columns = []
-        self.results = []
         self.si_confidence = si_confidence
         self.si_type = si_type
-        self.si = ScoreInterval(si_type=self.si_type, si_confidence=self.si_confidence, logger=self.logger)
         self.si_secret = ''
         self.si_known_columns = []
-        self.df_secret_known_results = None
-        self.df_secret_results = None
-        self.df_results = None
+        self.attack_in_progress = False
+
+        self.rep = Reporter(results_path=results_path,
+                            attack_name=attack_name,
+                            logger=self.logger,
+                            flush=flush,)
 
         # These three are used by the predictor to obtain the attacker's prediction
         # and confidence
@@ -89,19 +93,26 @@ class ALCManager:
         caller must make an attack prediction in each loop. This method determines
         when enough predictions have been made to produce a good ALC score.
         """
+        # First check if we have already run this attack.
+        if self.rep.already_attacked(secret_col, known_columns):
+            self.logger.info(f"Already ran attack on {secret_col} with known columns {known_columns}. Skipping.")
+            self.halt_info = {'halted': True, 'reason': 'attack already run. skipping.', 'num_attacks': 0}
+            return
+
         # Establish the targets to ignore, if any, and make a ScoreInterval object
         # for the halting decision.
         ignore_value, ignore_fraction = self._get_target_to_ignore_for_halting(secret_col)
         if ignore_value is not None:
             decoded_ignore_value = self.decode_value(secret_col, ignore_value)
             self.logger.info(f"The value {decoded_ignore_value} constitutes {round((100*(1-ignore_fraction)),2)} % of column {secret_col}, so we'll ignore a proportional fraction of those values in the attacks so that our results are better balanced.")
-        si_halt = ScoreInterval(si_type=self.si_type, si_confidence=self.si_confidence, logger=self.logger)
+        si_halt = ScoreInterval(si_type=self.si_type, si_confidence=self.si_confidence, max_score_interval=self.max_score_interval, logger=self.logger)
 
         # Initialize the first set of control rows
-        self.init_cntl_and_build_model(known_columns, secret_col)
+        self._init_cntl_and_build_model(known_columns, secret_col)
 
         num_attacks = 0
         self.halt_info = {'halted': False, 'reason': 'halt not yet checked', 'num_attacks': 1}
+        self.attack_in_progress = True
         while True:
             for i in range(len(self.df.cntl)):
                 # Get one base and attack measure at a time, and continue until we have
@@ -151,10 +162,14 @@ class ALCManager:
                 self.halt_info.update({'num_attacks': num_attacks})
                 self.logger.debug(pp.pformat(self.halt_info))
                 if self.halt_info['halted'] is True:
+                    self.attack_in_progress = False
+                    self.rep.consolidate_results(si_halt.get_alc_scores())
                     return
-            is_assigned = self.next_cntl_and_build_model()
+            is_assigned = self._next_cntl_and_build_model()
             if is_assigned is False:
                 self.halt_info = {'halted': False, 'reason': 'exhausted all rows',  'num_attacks': num_attacks}
+                self.attack_in_progress = False
+                self.rep.consolidate_results(si_halt.get_alc_scores())
                 return
 
     def prediction(self, encoded_predicted_value: Any, prediction_confidence: float) -> bool:
@@ -212,144 +227,22 @@ class ALCManager:
 
         # If no value exceeds the threshold, return None
         return None, 0.0
-
-    def _get_results_dict(self) -> List[Dict[str, Any]]:
-        return self.results
     
-    def get_results_df(self,
-                       known_columns: Optional[List[str]] = None,
-                       secret_column: Optional[str] = None) -> pd.DataFrame:
-        if self.df_results is None:
-            self._get_results_df()
-        return self._filter_df(self.df_results, known_columns, secret_column)
-
-    def _get_results_df(self) -> None:
-        self.df_results = pd.DataFrame(self.results)
-
-    def alc_per_secret_df(self,
-                       known_columns: Optional[List[str]] = None,
-                       secret_column: Optional[str] = None) -> pd.DataFrame:
-        if self.df_results is None:
-            self._get_results_df()
-        if self.df_secret_results is None:
-            self._alc_per_secret_df()
-        return self._filter_df(self.df_secret_results, known_columns, secret_column)
-
-    def _alc_per_secret_df(self) -> None:
-        if self.df_results is None:
-            self._get_results_df()
-        df_in = self.df_results
-        df_in['prediction'] = df_in['predicted_value'] == df_in['true_value']
-        rows = []
-        grouped = df_in.groupby('secret_column', as_index=False)
-        for secret_col, group in grouped:
-            base_group = group[group['predict_type'] == 'base']
-            attack_group = group[group['predict_type'] == 'attack']
-            base_count = len(base_group)
-            attack_count = len(attack_group)
-            score_info = self.si.get_alc_scores(base_group, attack_group, max_score_interval=self.max_score_interval)
-            for score in score_info:
-                score['secret_column'] = secret_col
-                score['base_count'] = base_count
-                score['attack_count'] = attack_count
-                rows.append(score)
-        self.df_secret_results = pd.DataFrame(rows)
     
-    def alc_per_secret_and_known_df(self,
-                                 known_columns: Optional[List[str]] = None,
-                                 secret_column: Optional[str] = None) -> pd.DataFrame:
-        if self.df_results is None:
-            self._get_results_df()
-        if self.df_secret_known_results is None:
-            self._alc_per_secret_and_known_df()
-        return self._filter_df(self.df_secret_known_results, known_columns, secret_column)
-
-    def _alc_per_secret_and_known_df(self) -> None:
-        if self.df_results is None:
-            self._get_results_df()
-        df_in = self.df_results
-        df_in['prediction'] = df_in['predicted_value'] == df_in['true_value']
-        rows = []
-        # known_columns is a string here
-        grouped = df_in.groupby(['known_columns', 'secret_column'])
-        for (known_columns, secret_col), group in grouped:
-            base_group = group[group['predict_type'] == 'base']
-            attack_group = group[group['predict_type'] == 'attack']
-            base_count = len(base_group)
-            attack_count = len(attack_group)
-            num_known_columns = group['num_known_columns'].iloc[0]
-            score_info = self.si.get_alc_scores(base_group, attack_group, max_score_interval=self.max_score_interval)
-            for score in score_info:
-                score['secret_column'] = secret_col
-                score['known_columns'] = known_columns
-                score['num_known_columns'] = num_known_columns
-                score['base_count'] = base_count
-                score['attack_count'] = attack_count
-                rows.append(score)
-        self.df_secret_known_results = pd.DataFrame(rows)
-
-
-    def _filter_df(self, df: pd.DataFrame,
-                  known_columns: Optional[List[str]] = None,
-                  secret_column: Optional[str] = None) -> pd.DataFrame:
-        if known_columns is not None:
-            known_columns_str = self._make_known_columns_str(known_columns)
-            df = df[df['known_columns'] == known_columns_str]
-        if secret_column is not None:
-            df = df[df['secret_column'] == secret_column]
-        return df
-
-    def _make_known_columns_str(self, known_columns: List[str]) -> str:
-        return json.dumps(sorted(known_columns))
-
     def summarize_results(self,
-                          results_path: str,
-                          attack_name: str = '',
                           strong_thresh: float = 0.5,
                           risk_thresh: float = 0.7,
                           with_text: bool = True,
-                          with_plot: bool = True) -> None:
-        os.makedirs(results_path, exist_ok=True)
-        if self.logger is None:
-            logger_path = os.path.join(results_path, 'brm_attack.log')
-            self.logger = setup_logging(log_file_path=logger_path)
-        df = self.get_results_df()
-        self.save_to_csv(results_path, df, 'summary_raw.csv')
-        df_secret_known = self.alc_per_secret_and_known_df()
-        self.save_to_csv(results_path, df_secret_known, 'summary_secret_known.csv')
-        df_secret = self.alc_per_secret_df()
-        self.save_to_csv(results_path, df_secret, 'summary_secret.csv')
-        if with_text:
-            text_summary = make_text_summary(df_secret_known,
-                                                strong_thresh,
-                                                risk_thresh,
-                                                self.all_secret_columns,
-                                                self.all_known_columns,
-                                                attack_name)
-            self.save_to_text(results_path, text_summary, 'summary.txt')
-        if with_plot:
-            plot_alc(df_secret_known,
-                        strong_thresh,
-                        risk_thresh,
-                        attack_name,
-                        os.path.join(results_path, 'alc_plot.png'))
-            plot_alc_prec(df_secret_known,
-                        strong_thresh,
-                        risk_thresh,
-                        attack_name,
-                        os.path.join(results_path, 'alc_prec_plot.png'))
-            plot_alc_best(df_secret_known,
-                        strong_thresh,
-                        risk_thresh,
-                        attack_name,
-                        os.path.join(results_path, 'alc_plot_best.png'))
-            plot_alc_prec_best(df_secret_known,
-                        strong_thresh,
-                        risk_thresh,
-                        attack_name,
-                        os.path.join(results_path, 'alc_prec_plot_best.png'))
-
-
+                          with_plot: bool = True,
+                          ) -> None:
+        if self.attack_in_progress:
+            self.logger.warning("Warning: Attack is still in progress. Summarize aborted.")
+            return False
+        return self.rep.summarize_results(strong_thresh=strong_thresh,
+                                          risk_thresh=risk_thresh,
+                                          with_text=with_text,
+                                          with_plot=with_plot,
+                                          )
     def _add_result(self,
                    predict_type: str,
                    known_columns: List[str],
@@ -362,23 +255,15 @@ class ALCManager:
                    attack_confidence: Optional[float] = None,
                    si_halt: Optional[ScoreInterval] = None,
                    ) -> None:
-        # Reset the results dataframes because they will be out of date after this add
-        self.df_secret_known_results = None
-        self.df_secret_results = None
-        self.df_results = None
 
         if base_confidence is not None and base_confidence == 0:
             base_confidence = None
         if attack_confidence is not None and attack_confidence == 0:
             attack_confidence = None
-        if secret_col not in self.all_secret_columns:
-            self.all_secret_columns.append(secret_col)
-        for col in known_columns:
-            if col not in self.all_known_columns:
-                self.all_known_columns.append(col)
+        self.rep.add_known_columns(known_columns)
+        self.rep.add_secret_column(secret_col)
         # sort known_columns
         known_columns = sorted(known_columns)
-        self._check_for_si_reset(known_columns, secret_col)
         # Check if predicted_value is a numpy type
         if isinstance(decoded_predicted_value, np.generic):
             decoded_predicted_value = decoded_predicted_value.item()
@@ -386,30 +271,29 @@ class ALCManager:
             prediction = True
         else:
             prediction = False
-        self.results.append({
+
+        # Create a new row as a dictionary. The str() typecasting is to deal with
+        # saving as parquet later, which requires consistent types
+        row = {
             'predict_type': predict_type,
-            'known_columns': self._make_known_columns_str(known_columns),
+            'known_columns': self.rep._make_known_columns_str(known_columns),
             'num_known_columns': len(known_columns),
             'secret_column': secret_col,
-            'predicted_value': decoded_predicted_value,
-            'true_value': decoded_true_value,
-            'encoded_predicted_value': encoded_predicted_value,
-            'encoded_true_value': encoded_true_value,
+            'predicted_value': str(decoded_predicted_value),
+            'true_value': str(decoded_true_value),
+            'encoded_predicted_value': str(encoded_predicted_value),
+            'encoded_true_value': str(encoded_true_value),
             'prediction': prediction,
             'base_confidence': base_confidence,
             'attack_confidence': attack_confidence,
-        })
+        }
+
+        self.rep.add_result(row)
+
         confidence = base_confidence
         if predict_type == 'attack':
             confidence = attack_confidence
-        self.si.add_prediction(prediction, confidence, predict_type)
         si_halt.add_prediction(prediction, confidence, predict_type)
-
-    def _check_for_si_reset(self, known_columns: List[str], secret_col: str) -> None:
-        if self.si_secret != secret_col or self.si_known_columns != known_columns:
-            self.si_secret = secret_col
-            self.si_known_columns = known_columns
-            self.si.reset()
 
     def _get_significant_attack_prcs(self, alc_scores: List[Dict[str, Any]]) -> List[float]:
         attack_prcs = []
@@ -423,9 +307,8 @@ class ALCManager:
     def _ok_to_halt(self, si_halt: ScoreInterval) -> Dict[str, Any]:
         if len(si_halt.df_base) < 10 or len(si_halt.df_attack) < 10:
             return {'halted': False, 'reason': f'not enough samples {len(si_halt.df_base)} base, {len(si_halt.df_attack)} attack'}
-        alc_scores = si_halt.get_alc_scores(si_halt.df_base, si_halt.df_attack, max_score_interval=self.max_score_interval)
+        alc_scores = si_halt.get_alc_scores()
         # put the values of alc_scores['paired'] into a list called paired
-        paired = [score['paired'] for score in alc_scores]
         if len(alc_scores) == 0:
             return {'halted': False, 'reason':f'no alc scores with attack and base score intervals < {self.max_score_interval}'}
         best_alc_score, alc_scores = si_halt.split_scores(alc_scores)
@@ -459,25 +342,6 @@ class ALCManager:
         ret.update({'halted':False, 'reason':'halt conditions not met'})
         return ret
 
-    def save_to_text(self, results_path: str, text_summary: str, file_name: str) -> None:
-        save_path = os.path.join(results_path, file_name)
-        try:
-            with open(save_path, 'w') as f:
-                f.write(text_summary)
-        except PermissionError:
-            self.logger.warning(f"Warning: The file at {save_path} is currently open in another application. You might want to make a copy of the summary file in order to view it while the attack is still executing.")
-        except Exception as e:
-            self.logger.error(f"Error: Failed to write {save_path}: {e}")
-
-    def save_to_csv(self, results_path, df: pd.DataFrame, file_name: str) -> None:
-        save_path = os.path.join(results_path, file_name)
-        try:
-            df.to_csv(save_path, index=False)
-        except PermissionError:
-            self.logger.warning(f"Warning: The file at {save_path} is currently open in another application. You might want to make a copy of the summary file in order to view it while the attack is still executing.")
-        except Exception as e:
-            self.logger.error(f"Error: Failed to write {save_path}: {e}")
-    
     # Following are the methods that use DataFiles
     def get_pre_discretized_column(self, secret_column: str) -> str:
         return self.df.get_pre_discretized_column(secret_column)
@@ -495,14 +359,14 @@ class ALCManager:
         return self.df.column_classification.copy()
 
     # Following are the methods that use BasePredictor 
-    def init_cntl_and_build_model(self, known_columns: List[str], secret_col: str,  
+    def _init_cntl_and_build_model(self, known_columns: List[str], secret_col: str,  
                                   ) -> None:
         is_assigned = self.df.assign_first_cntl_block()
         if is_assigned is False:
             raise ValueError("Error: Control block initialization failed")
         self.base_pred.build_model(self.df.orig, known_columns, secret_col, self.random_state)
 
-    def next_cntl_and_build_model(self) -> bool:
+    def _next_cntl_and_build_model(self) -> bool:
         is_assigned = self.df.assign_next_cntl_block()
         if is_assigned is False:
             return False
@@ -511,3 +375,20 @@ class ALCManager:
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
         return self.base_pred.predict(df_row)
+
+    # Following are methods that use Reporter
+    def get_results_df(self,
+                       known_columns: Optional[List[str]] = None,
+                       secret_column: Optional[str] = None) -> Optional[pd.DataFrame]:
+        if self.attack_in_progress:
+            self.logger.warning("Warning: Attack is still in progress. Cannot get results.")
+            return None
+        return self.rep.get_results_df(known_columns, secret_column)
+
+    def alc_per_secret_and_known_df(self,
+                                 known_columns: Optional[List[str]] = None,
+                                 secret_column: Optional[str] = None) -> Optional[pd.DataFrame]:
+        if self.attack_in_progress:
+            self.logger.warning("Warning: Attack is still in progress. Cannot get results.")
+            return None
+        return self.rep.alc_per_secret_and_known_df(known_columns, secret_column)
