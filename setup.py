@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='anonymity_loss_coefficient',
-    version='1.0.16',
+    version='1.0.17',
     description='A package to run attacks on anonymized data using the Anonymity Loss Coefficient.',
     author='Paul Francis',
     author_email='paul@francis.com',
@@ -15,6 +15,8 @@ setup(
         "scikit-learn>=1.0.0",
         "matplotlib>=3.4.0",
         "seaborn>=0.11.0",
+        "pyarrow>=20.0.0",
+        "fastparquet>=2024.1.0",
     ],
     classifiers=[
         'Programming Language :: Python :: 3',
