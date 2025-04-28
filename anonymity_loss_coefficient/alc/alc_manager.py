@@ -103,6 +103,10 @@ class ALCManager:
         # for the halting decision.
         ignore_value, ignore_fraction = self._get_target_to_ignore_for_halting(secret_column)
         if ignore_value is not None:
+            if ignore_fraction is 0.0:
+                self.logger.info(f"Only one value in {secret_column}, so halt.")
+                self.halt_info = {'halted': True, 'reason': 'Only one value to attack. skipping.', 'num_attacks': 0}
+                return
             decoded_ignore_value = self.decode_value(secret_column, ignore_value)
             self.logger.info(f"The value {decoded_ignore_value} constitutes {round((100*(1-ignore_fraction)),2)} % of column {secret_column}, so we'll ignore a proportional fraction of those values in the attacks so that our results are better balanced.")
         si_halt = ScoreInterval(si_type=self.si_type, si_confidence=self.si_confidence, max_score_interval=self.max_score_interval, logger=self.logger)
@@ -204,7 +208,7 @@ class ALCManager:
                          base_confidence=proba,
                          si_halt=si_halt)
 
-    def _get_target_to_ignore_for_halting(self, column: str) -> Tuple[Optional[Any], float]:
+    def _get_target_to_ignore_for_halting(self, column: str) -> Tuple[Optional[Any], Optional[float]]:
         """
         With respect to the halting decision, we want to ignore column values that are
         too common because then we won't get an adequate sampling of other column values.
@@ -226,7 +230,7 @@ class ALCManager:
             return max_value, 1 - max_count
 
         # If no value exceeds the threshold, return None
-        return None, 0.0
+        return None, None
     
     
     def summarize_results(self,

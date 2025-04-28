@@ -139,6 +139,9 @@ class Reporter():
         return json.dumps(sorted(known_columns))
 
     def consolidate_results(self, score_info: List[Dict]) -> None:
+        if len(self.list_results) == 0:
+            self.logger.warning("Warning: No results to consolidate.")
+            return
         # move the results from the list to a dataframe
         list_secret_known_results = self._alc_per_secret_and_known(score_info)
         # At this point, self.list_results, and list_secret_known_results
@@ -153,6 +156,9 @@ class Reporter():
                           with_text: bool = True,
                           with_plot: bool = True,
                           ) -> bool:
+        if len(self.list_results_done) == 0:
+            self.logger.warning("Warning: No results to summarize.")
+            return False
         df_results = pd.DataFrame(self.list_results_done)
         df_secret_known_results = pd.DataFrame(self.list_secret_known_results_done)
         self.save_to_parquet(self.results_path, df_results, 'summary_raw.parquet')

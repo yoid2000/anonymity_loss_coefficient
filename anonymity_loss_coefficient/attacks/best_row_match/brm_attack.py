@@ -68,6 +68,8 @@ class BrmAttack:
             self.run_one_attack(secret_column, known_columns)
 
     def run_one_attack(self, secret_column: str, known_columns: List[str] = None) -> None:
+        # We do this again in case this is being called from the user
+        secret_column = self.alcm.get_discretized_column(secret_column)
         if known_columns is None:
             # select a set of original rows to use for the attack
             known_columns = self.all_known_columns
