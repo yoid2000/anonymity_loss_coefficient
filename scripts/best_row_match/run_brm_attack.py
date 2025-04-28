@@ -70,7 +70,7 @@ def launch_attack(data: str,
                     flush = flush,
                     )
     if run_once:
-        brm.run_one_attack(secret_col=secret[0], known_columns=known)
+        brm.run_one_attack(secret_column=secret[0], known_columns=known)
         return
     if known is None:
         brm.run_all_columns_attack(secret_cols=secret)

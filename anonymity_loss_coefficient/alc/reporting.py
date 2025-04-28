@@ -103,10 +103,10 @@ class Reporter():
         attack_count = len(attack_group)
         num_known_columns = df_in['num_known_columns'].iloc[0]
         # Note that known_columns is a string at this point
-        secret_col = df_in['secret_column'].iloc[0]
+        secret_column = df_in['secret_column'].iloc[0]
         known_columns = df_in['known_columns'].iloc[0]
         for score in score_info:
-            score['secret_column'] = secret_col
+            score['secret_column'] = secret_column
             score['known_columns'] = known_columns
             score['num_known_columns'] = num_known_columns
             score['base_count'] = base_count

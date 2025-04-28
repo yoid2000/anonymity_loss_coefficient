@@ -10,15 +10,15 @@ class BaselinePredictor:
     def __init__(self) -> None:
         self.model = None
         self.known_columns = None
-        self.secret_col = None
+        self.secret_column = None
 
-    def build_model(self, df: pd.DataFrame, known_columns: Optional[List[str]] = None, secret_col: Optional[str] = None,  random_state: Optional[int] = None) -> None:
+    def build_model(self, df: pd.DataFrame, known_columns: Optional[List[str]] = None, secret_column: Optional[str] = None,  random_state: Optional[int] = None) -> None:
         if known_columns is not None:
             self.known_columns = known_columns
-        if secret_col is not None:
-            self.secret_col = secret_col
+        if secret_column is not None:
+            self.secret_column = secret_column
         X = df[list(self.known_columns)]
-        y = df[self.secret_col]
+        y = df[self.secret_column]
         y = y.values.ravel()  # Convert to 1D array
 
         # Build and train the model

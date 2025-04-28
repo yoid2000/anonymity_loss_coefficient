@@ -85,7 +85,7 @@ class ALCManager:
 
     def predictor(self,
                   known_columns: List[str],
-                  secret_col: str,
+                  secret_column: str,
                   ) -> Generator[Tuple[pd.DataFrame, Any, Any, bool], None, None]:
         """
         This is the main method of the ALCManager class. It is a generator that yields
@@ -94,21 +94,21 @@ class ALCManager:
         when enough predictions have been made to produce a good ALC score.
         """
         # First check if we have already run this attack.
-        if self.rep.already_attacked(secret_col, known_columns):
-            self.logger.info(f"Already ran attack on {secret_col} with known columns {known_columns}. Skipping.")
+        if self.rep.already_attacked(secret_column, known_columns):
+            self.logger.info(f"Already ran attack on {secret_column} with known columns {known_columns}. Skipping.")
             self.halt_info = {'halted': True, 'reason': 'attack already run. skipping.', 'num_attacks': 0}
             return
 
         # Establish the targets to ignore, if any, and make a ScoreInterval object
         # for the halting decision.
-        ignore_value, ignore_fraction = self._get_target_to_ignore_for_halting(secret_col)
+        ignore_value, ignore_fraction = self._get_target_to_ignore_for_halting(secret_column)
         if ignore_value is not None:
-            decoded_ignore_value = self.decode_value(secret_col, ignore_value)
-            self.logger.info(f"The value {decoded_ignore_value} constitutes {round((100*(1-ignore_fraction)),2)} % of column {secret_col}, so we'll ignore a proportional fraction of those values in the attacks so that our results are better balanced.")
+            decoded_ignore_value = self.decode_value(secret_column, ignore_value)
+            self.logger.info(f"The value {decoded_ignore_value} constitutes {round((100*(1-ignore_fraction)),2)} % of column {secret_column}, so we'll ignore a proportional fraction of those values in the attacks so that our results are better balanced.")
         si_halt = ScoreInterval(si_type=self.si_type, si_confidence=self.si_confidence, max_score_interval=self.max_score_interval, logger=self.logger)
 
         # Initialize the first set of control rows
-        self._init_cntl_and_build_model(known_columns, secret_col)
+        self._init_cntl_and_build_model(known_columns, secret_column)
 
         num_attacks = 0
         self.halt_info = {'halted': False, 'reason': 'halt not yet checked', 'num_attacks': 1}
@@ -122,8 +122,8 @@ class ALCManager:
                 # For the purpose of determining if the attack prediction is True or False,
                 # we determine the true value. The decoded_true_value is the true value 
                 # after decoding from the encoding done in pre-processing
-                self.encoded_true_value = atk_row[secret_col].iloc[0]
-                decoded_true_value = self.decode_value(secret_col, self.encoded_true_value)
+                self.encoded_true_value = atk_row[secret_column].iloc[0]
+                decoded_true_value = self.decode_value(secret_column, self.encoded_true_value)
 
                 # Determine if the row should be ignored or not for the purpose of
                 # the halting criteria.
@@ -132,7 +132,7 @@ class ALCManager:
                     random.random() > ignore_fraction):
                     continue
                 num_attacks += 1
-                self._model_prediction(atk_row, secret_col, known_columns, si_halt)
+                self._model_prediction(atk_row, secret_column, known_columns, si_halt)
 
                 # The attacker only needs to know the values of the known_columns for the
                 # purpose of running the attack, so we separate them out.
@@ -144,12 +144,12 @@ class ALCManager:
                     raise ValueError("Error: No prediction was made in the predictor method. The caller must call the ALCManager prediction() method in each loop of the predictor.")
                 self.prediction_made = False
                 if self.encoded_predicted_value is not None:
-                    decoded_predicted_value = self.decode_value(secret_col, self.encoded_predicted_value)
+                    decoded_predicted_value = self.decode_value(secret_column, self.encoded_predicted_value)
                 else:
                     decoded_predicted_value = None
                 self._add_result(predict_type='attack',
                                 known_columns=known_columns,
-                                secret_col=secret_col,
+                                secret_column=secret_column,
                                 decoded_predicted_value=decoded_predicted_value,
                                 decoded_true_value=decoded_true_value,
                                 encoded_predicted_value=self.encoded_predicted_value,
@@ -185,18 +185,18 @@ class ALCManager:
         return self.prediction_result
 
     def _model_prediction(self, row: pd.DataFrame,
-                     secret_col: str,
+                     secret_column: str,
                      known_columns: List[str],
                      si_halt: Optional[ScoreInterval]) -> None:
         # get the prediction for the row
         df_row = row[known_columns]  # This is already a DataFrame
         encoded_predicted_value, proba = self.predict(df_row)
-        encoded_true_value = row[secret_col].iloc[0]
-        decoded_predicted_value = self.decode_value(secret_col, encoded_predicted_value)
-        decoded_true_value = self.decode_value(secret_col, encoded_true_value)
+        encoded_true_value = row[secret_column].iloc[0]
+        decoded_predicted_value = self.decode_value(secret_column, encoded_predicted_value)
+        decoded_true_value = self.decode_value(secret_column, encoded_true_value)
         self._add_result(predict_type='base',
                          known_columns=known_columns,
-                         secret_col=secret_col,
+                         secret_column=secret_column,
                          decoded_predicted_value=decoded_predicted_value,
                          decoded_true_value=decoded_true_value,
                          encoded_predicted_value=encoded_predicted_value,
@@ -246,7 +246,7 @@ class ALCManager:
     def _add_result(self,
                    predict_type: str,
                    known_columns: List[str],
-                   secret_col: str,
+                   secret_column: str,
                    decoded_predicted_value: Any,
                    decoded_true_value: Any,
                    encoded_predicted_value: Any,
@@ -261,7 +261,7 @@ class ALCManager:
         if attack_confidence is not None and attack_confidence == 0:
             attack_confidence = None
         self.rep.add_known_columns(known_columns)
-        self.rep.add_secret_column(secret_col)
+        self.rep.add_secret_column(secret_column)
         # sort known_columns
         known_columns = sorted(known_columns)
         # Check if predicted_value is a numpy type
@@ -278,7 +278,7 @@ class ALCManager:
             'predict_type': predict_type,
             'known_columns': self.rep._make_known_columns_str(known_columns),
             'num_known_columns': len(known_columns),
-            'secret_column': secret_col,
+            'secret_column': secret_column,
             'predicted_value': str(decoded_predicted_value),
             'true_value': str(decoded_true_value),
             'encoded_predicted_value': str(encoded_predicted_value),
@@ -359,12 +359,12 @@ class ALCManager:
         return self.df.column_classification.copy()
 
     # Following are the methods that use BasePredictor 
-    def _init_cntl_and_build_model(self, known_columns: List[str], secret_col: str,  
+    def _init_cntl_and_build_model(self, known_columns: List[str], secret_column: str,  
                                   ) -> None:
         is_assigned = self.df.assign_first_cntl_block()
         if is_assigned is False:
             raise ValueError("Error: Control block initialization failed")
-        self.base_pred.build_model(self.df.orig, known_columns, secret_col, self.random_state)
+        self.base_pred.build_model(self.df.orig, known_columns, secret_column, self.random_state)
 
     def _next_cntl_and_build_model(self) -> bool:
         is_assigned = self.df.assign_next_cntl_block()
