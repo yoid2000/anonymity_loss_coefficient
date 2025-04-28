@@ -47,9 +47,15 @@ def find_best_matches(df_candidates: pd.DataFrame,
         col_min = df_candidates[continuous_cols].min()
         col_max = df_candidates[continuous_cols].max()
 
+        # Avoid division by zero
+        range_values = (col_max - col_min).replace(0, 1)
+
         # Normalize continuous columns in df_candidates and df_query
-        normalized_candidates = (df_candidates[continuous_cols] - col_min) / (col_max - col_min)
-        normalized_query = (query_row[continuous_cols] - col_min) / (col_max - col_min)
+        normalized_candidates = (df_candidates[continuous_cols] - col_min) / range_values
+        normalized_query = (query_row[continuous_cols] - col_min) / range_values
+        # A normalized query value can be outside the range [0, 1] if
+        # it is outside the range of the candidates. So we clip it to [0, 1].
+        normalized_query = normalized_query.clip(0, 1)
 
         # Compute absolute differences for continuous columns
         continuous_distances = np.abs(normalized_candidates - normalized_query)
@@ -126,7 +132,7 @@ def best_match_confidence(gower_distance: float, modal_fraction: float, match_co
     if match_count == 0:
         raise ValueError("Error: match_count cannot be zero.")
     if not (0 <= gower_distance <= 1):
-        raise ValueError("Error: gower_distance must be between 0 and 1.")
+        raise ValueError(f"Error: gower_distance ({gower_distance}) must be between 0 and 1.")
     if not (0 <= modal_fraction <= 1):
         raise ValueError("Error: modal_fraction must be between 0 and 1.")
     return round((1 - gower_distance) * modal_fraction * (1/match_count), 3)

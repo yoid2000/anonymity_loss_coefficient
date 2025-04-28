@@ -20,9 +20,9 @@ Pip install `anonymity_loss_coefficient`.
 
 Examples:
 * `python run_brm_attack.py --data /path/to/attack_directory`: Assigns every column as a secret column in turn, and then runs attacks using a variety of known column sets (starting with all known columns, and then finding the most promising smaller known column sets)
-* `python run_brm_attack.py --data /path/to/attack_directory --secret secret_col`: Runs attacks against secret column `secret_col` using a variety of known column sets (starting with all known columns, and then finding the most promising smaller known column sets)
-* `python run_brm_attack.py --data /path/to/attack_directory --secret secret_col --known col1 col2 col3 col4 col5 col6`: Runs attacks against secret column `secret_col` using a variety of known column sets taken only from the specified columns (col1 through col6)
-* `python run_brm_attack.py --data /path/to/attack_directory --secret secret_col --known col1 col2 col3 col4 col5 col6 --one`: Runs exactly one attack against secret column `secret_col` using the specified known columns (`col1` through `col6`)
+* `python run_brm_attack.py --data /path/to/attack_directory --secret secret_column`: Runs attacks against secret column `secret_column` using a variety of known column sets (starting with all known columns, and then finding the most promising smaller known column sets)
+* `python run_brm_attack.py --data /path/to/attack_directory --secret secret_column --known col1 col2 col3 col4 col5 col6`: Runs attacks against secret column `secret_column` using a variety of known column sets taken only from the specified columns (col1 through col6)
+* `python run_brm_attack.py --data /path/to/attack_directory --secret secret_column --known col1 col2 col3 col4 col5 col6 --one`: Runs exactly one attack against secret column `secret_column` using the specified known columns (`col1` through `col6`)
 * `python run_brm_attack.py --data /path/to/attack_directory --secret scol1 scol2`: Runs attacks against secret columns `scol1` and `scol2` using a variety of known column sets (starting with all known columns, and then finding the most promising smaller known column sets)
 
 

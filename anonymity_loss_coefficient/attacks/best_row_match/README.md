@@ -36,6 +36,6 @@ The required parameters are:
 
 `BrmAttack` exposes three methods:
 
-* `run_one_attack(secret_col: str, known_columns: List[str]) -> None:` where `secret_col` is the unknown attribute being predicted, and `known_columns` are the columns known to the attacker. `run_one_attack()` runs until a statistically significant number of attacks are completed.
+* `run_one_attack(secret_column: str, known_columns: List[str]) -> None:` where `secret_column` is the unknown attribute being predicted, and `known_columns` are the columns known to the attacker. `run_one_attack()` runs until a statistically significant number of attacks are completed.
 * `run_all_columns_attack(self, secret_cols: List[str] = None)` runs the `brm_attack()` for the secret columns in `secret_cols`, assuming that all other columns are known. If `secret_cols` is None, then it assumes that all columns are secret columns.
 * `run_auto_attack(self, secret_cols: List[str] = None, known_columns: List[str] = None)` finds sets of known columns among the `known_columns`, for each secret column in `secret_cols`, that is likely to produce a large number of unique rows, and runs attacks over those known columns. It assumes that all columns are known columns if `known_columns` is None, and assumes that all columns are secret columns if `secret_cols` is None.
