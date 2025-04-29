@@ -33,25 +33,40 @@ class Reporter():
             self._remove_file(summary_raw_path)
             self._remove_file(summary_secret_known_path)
         else:
-            # read the summary_raw_path if it exists and convert to a list of dicts
-            if os.path.exists(summary_raw_path):
-                if not os.path.exists(summary_secret_known_path):
-                    # throw an excption
-                    raise Exception(f"Either both {summary_raw_path} and {summary_secret_known_path} must exist or neither must exist.")
+            self._read_results(summary_raw_path, summary_secret_known_path)
+
+    def _read_results(self, summary_raw_path: str, summary_secret_known_path: str) -> None:
+        # Read the summary_raw_path if it exists and convert to a list of dicts
+        if (os.path.exists(summary_raw_path) and not os.path.exists(summary_secret_known_path) or
+            not os.path.exists(summary_raw_path) and os.path.exists(summary_secret_known_path)):
+            # Log a warning and delete the file at summary_raw_path
+            self.logger.warning(f"Either both {summary_raw_path} and {summary_secret_known_path} must exist or neither must exist. Flushing both.")
+            self._remove_file(summary_raw_path)
+            self._remove_file(summary_secret_known_path)
+            return
+        if os.path.exists(summary_raw_path):
+            try:
                 df = pd.read_parquet(summary_raw_path)
                 self.logger.info(f"Reading {summary_raw_path}. Found {len(df)} rows.")
                 self.list_results_done = df.to_dict(orient='records')
-            if os.path.exists(summary_secret_known_path):
-                if not os.path.exists(summary_raw_path):
-                    # throw an excption
-                    raise Exception(f"Either both {summary_raw_path} and {summary_secret_known_path} must exist or neither must exist.")
+            except Exception as e:
+                self.logger.error(f"Failed to read {summary_raw_path}: {e}. Flushing both {summary_raw_path} and {summary_secret_known_path}.")
+                self._remove_file(summary_raw_path)
+                self._remove_file(summary_secret_known_path)
+
+        if os.path.exists(summary_secret_known_path):
+            try:
                 df = pd.read_csv(summary_secret_known_path)
-                self.list_secret_known_results_done = df.to_dict(orient='records')
                 self.logger.info(f"Reading {summary_secret_known_path}. Found {len(df)} rows.")
-                # get every distinct combination of secret_column and known_columns
+                self.list_secret_known_results_done = df.to_dict(orient='records')
+                # Get every distinct combination of secret_column and known_columns
                 self.df_already_attacked = df[['secret_column', 'known_columns']].drop_duplicates()
                 self.df_already_attacked = self.df_already_attacked.reset_index(drop=True)
                 self.logger.info(f"Found {len(self.df_already_attacked)} already attacked secret_column / known_columns combinations.")
+            except Exception as e:
+                self.logger.error(f"Failed to read {summary_secret_known_path}: {e}. Flushing both {summary_raw_path} and {summary_secret_known_path}.")
+                self._remove_file(summary_raw_path)
+                self._remove_file(summary_secret_known_path)
 
     def add_result(self, row: dict) -> None:
         # Reset the results dataframes because they will be out of date after this add
@@ -126,7 +141,6 @@ class Reporter():
         return df
 
     def _remove_file(self, file_path: str) -> None:
-        self.logger.info(f"Flushing {file_path}")
         if os.path.exists(file_path):
             try:
                 os.remove(file_path)
