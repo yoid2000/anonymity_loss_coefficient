@@ -161,37 +161,39 @@ class Reporter():
             return False
         df_results = pd.DataFrame(self.list_results_done)
         df_secret_known_results = pd.DataFrame(self.list_secret_known_results_done)
-        self.save_to_parquet(self.results_path, df_results, 'summary_raw.parquet')
-        self.save_to_csv(self.results_path, df_secret_known_results, 'summary_secret_known.csv')
-        if with_text:
-            text_summary = make_text_summary(df_secret_known_results,
-                                             strong_thresh,
-                                             risk_thresh,
-                                             self.all_used_secret_columns,
-                                             self.all_used_known_columns,
-                                             self.attack_name)
-            self.save_to_text(self.results_path, text_summary, 'summary.txt')
-        if with_plot:
-            plot_alc(df_secret_known_results,
-                        strong_thresh,
-                        risk_thresh,
-                        self.attack_name,
-                        os.path.join(self.results_path, 'alc_plot.png'))
-            plot_alc_prec(df_secret_known_results,
-                        strong_thresh,
-                        risk_thresh,
-                        self.attack_name,
-                        os.path.join(self.results_path, 'alc_prec_plot.png'))
-            plot_alc_best(df_secret_known_results,
-                        strong_thresh,
-                        risk_thresh,
-                        self.attack_name,
-                        os.path.join(self.results_path, 'alc_plot_best.png'))
-            plot_alc_prec_best(df_secret_known_results,
-                        strong_thresh,
-                        risk_thresh,
-                        self.attack_name,
-                        os.path.join(self.results_path, 'alc_prec_plot_best.png'))
+        if len(df_results) > 0:
+            self.save_to_parquet(self.results_path, df_results, 'summary_raw.parquet')
+        if len(df_secret_known_results) > 0:
+            self.save_to_csv(self.results_path, df_secret_known_results, 'summary_secret_known.csv')
+            if with_text:
+                text_summary = make_text_summary(df_secret_known_results,
+                                                strong_thresh,
+                                                risk_thresh,
+                                                self.all_used_secret_columns,
+                                                self.all_used_known_columns,
+                                                self.attack_name)
+                self.save_to_text(self.results_path, text_summary, 'summary.txt')
+            if with_plot:
+                plot_alc(df_secret_known_results,
+                            strong_thresh,
+                            risk_thresh,
+                            self.attack_name,
+                            os.path.join(self.results_path, 'alc_plot.png'))
+                plot_alc_prec(df_secret_known_results,
+                            strong_thresh,
+                            risk_thresh,
+                            self.attack_name,
+                            os.path.join(self.results_path, 'alc_prec_plot.png'))
+                plot_alc_best(df_secret_known_results,
+                            strong_thresh,
+                            risk_thresh,
+                            self.attack_name,
+                            os.path.join(self.results_path, 'alc_plot_best.png'))
+                plot_alc_prec_best(df_secret_known_results,
+                            strong_thresh,
+                            risk_thresh,
+                            self.attack_name,
+                            os.path.join(self.results_path, 'alc_prec_plot_best.png'))
         return True
 
 
