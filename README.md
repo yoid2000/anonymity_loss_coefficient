@@ -20,7 +20,15 @@ For users interested in developing new attacks, `scripts/generic_example.md` out
 
 ## Dev
 
-To push to pypi.org:
+### To test
+
+`pytest -s --log-level=WARNING tests/`
+
+-s to force printing to sysout
+
+The log level is to prevent numerous logging statements
+
+### To push to pypi.org:
 
 remove the `dist/` directory
 

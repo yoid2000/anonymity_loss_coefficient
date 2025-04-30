@@ -35,6 +35,7 @@ class ALCManager:
                        halt_min_significant_attack_prcs = defaults['halt_min_significant_attack_prcs'],
                        halt_min_prc_improvement = defaults['halt_min_prc_improvement'],
                        halt_check_count = defaults['halt_check_count'],
+                       use_anon_for_baseline: bool = False,
                        random_state: Optional[int] = None
                        ) -> None:
         self.df = DataFiles(
@@ -45,6 +46,7 @@ class ALCManager:
                  discretize_in_place=discretize_in_place,
                  random_state=random_state,
         )
+        self.use_anon_for_baseline = use_anon_for_baseline     # experimental purposes
         self.logger = logger
         if self.logger is None:
             logger_path = os.path.join(results_path, 'alc_manager.log')
@@ -82,6 +84,13 @@ class ALCManager:
         # These contain information that the attacker can use to determine
         # why an attack loop halted
         self.halt_info = None
+
+    def close_logger(self):
+        """Closes all handlers attached to the logger."""
+        if hasattr(self, 'logger') and self.logger:
+            for handler in self.logger.handlers[:]:
+                self.logger.removeHandler(handler)
+                handler.close()
 
     def predictor(self,
                   known_columns: List[str],
@@ -368,13 +377,19 @@ class ALCManager:
         is_assigned = self.df.assign_first_cntl_block()
         if is_assigned is False:
             raise ValueError("Error: Control block initialization failed")
-        self.base_pred.build_model(self.df.orig, known_columns, secret_column, self.random_state)
+        df = self.df.orig
+        if self.use_anon_for_baseline:
+            df = self.df.syn_list[0]
+        self.base_pred.build_model(df, known_columns, secret_column, self.random_state)
 
     def _next_cntl_and_build_model(self) -> bool:
         is_assigned = self.df.assign_next_cntl_block()
         if is_assigned is False:
             return False
-        self.base_pred.build_model(self.df.orig)
+        df = self.df.orig
+        if self.use_anon_for_baseline:
+            df = self.df.syn_list[0]
+        self.base_pred.build_model(df)
         return True
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:

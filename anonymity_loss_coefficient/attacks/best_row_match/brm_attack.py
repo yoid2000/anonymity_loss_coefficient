@@ -23,8 +23,10 @@ class BrmAttack:
                  verbose: bool = False,
                  no_counter: bool = True,
                  flush: bool = False,
+                 use_anon_for_baseline: bool = False,
                  ) -> None:
         # up to work with ML modeling
+        self.use_anon_for_baseline = use_anon_for_baseline
         self.flush = flush
         self.results_path = results_path
         self.max_known_col_sets = max_known_col_sets
@@ -44,6 +46,7 @@ class BrmAttack:
                                results_path = self.results_path,
                                attack_name = self.attack_name,
                                logger=self.logger,
+                               use_anon_for_baseline=self.use_anon_for_baseline,
                                flush=self.flush)
         # The known columns are the pre-discretized continuous columns and categorical
         # columns (i.e. all original columns). The secret columns are the discretized
