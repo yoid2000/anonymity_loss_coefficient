@@ -12,7 +12,8 @@ The directory `anonymity_loss_coefficient/alc` contains the code that is used by
 
 The directory `anonymity_loss_coefficient/attacks` contains the attacks themselves, one sub-directory per attack. These use the `ALCManager` class.
 
-For users interested in developing new attacks, `scripts/generic_example.md` outlines the basic usage of the `ALCManager` to run attacks. The attacks themselves also serve as examples.
+For users interested in developing new attacks, [`scripts/generic_example.md`](scripts/generic_example.md) outlines the basic usage of the `ALCManager` to run attacks. Another example can be found in `tests/test_alcmanager.py`. More generally, the attacks themselves also serve as additional examples.
+
 
 ## To install
 

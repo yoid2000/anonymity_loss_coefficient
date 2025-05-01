@@ -24,7 +24,7 @@ def attack_prediction(alcm: ALCManager,
                       df_atk: pd.DataFrame,
                       row: pd.DataFrame,
                       secret_column: str,
-                      known_columns: List[str]) -> Tuple[Any, float]:
+                      known_columns: List[str]) -> Tuple[Any, float, bool]:
     # Find all rows in df_atk that match the known_columns in row
     single_row = row.iloc[0]
     matching_rows = df_atk[df_atk[known_columns].eq(single_row[known_columns].values).all(axis=1)]
@@ -40,7 +40,10 @@ def attack_prediction(alcm: ALCManager,
             encoded_predicted_value = None
             mode_count = 0
         fraction = mode_count / len(matching_rows)
-    return encoded_predicted_value, fraction
+    abstain = False
+    if fraction < 0.0001:
+        abstain = True
+    return encoded_predicted_value, fraction, abstain
 
 
 def anonymize_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -67,6 +70,8 @@ def cb() -> str:
 
 pp = pprint.PrettyPrinter(indent=4)
 np.random.seed(42)
+
+print("## Example of using the ALCManager class to build attacks.\n")
 
 print("Assume that `df_original` is the original raw data that we want to measure")
 df_original = make_data(10000)
@@ -119,21 +124,27 @@ print("\nNote the use of the `get_discretized_column` method.  This produces the
 
 print("\nRun the predictions loop. There is the question of how many predictions to make in order to get a statistically significant result. To avoid doing more work than necessary, the ALCManager calculates confidence intervals over the set of predictions made so far, and stops when confidence intervals are high enough.")
 
-print("\nThe predictions loop runs from the ALCManager `predictor()` class. This is a generator that feeds attack rows one by one. Inside the loop, we make our prediction and then call the ACLManager `prediction()` method to register our prediction. The `predictor()` generator does the rest, including computing the baseline precision and deciding when to quit.")
+print("\nThe predictions loop runs from the ALCManager `predictor()` class. This is a generator that feeds attack rows one by one. Inside the loop, we make our prediction (here `attack_prediction()`) and then call either the ACLManager `prediction()` or `abstention()` method to register our prediction. The `abstention()` method is used when the quality of the prediction is likely quite poor. Under the hood, it causes the baseline prediction to be used as the attack prediction. The `predictor()` generator does the rest, including computing the baseline precision and deciding when to quit.")
 
 print('''
 ```
 for atk_row, _, _ in alcm.predictor(known_columns, secret_column):
-    encoded_predicted_value, prediction_confidence = attack_prediction(alcm, df_anon, atk_row, secret_column, known_columns)
-    alcm.prediction(encoded_predicted_value, prediction_confidence)
+    encoded_predicted_value, confidence, abstain = attack_prediction(alcm, df_anon, atk_row, secret_column, known_columns)
+    if abstain:
+        alcm.abstention()
+    else:
+        alcm.prediction(encoded_predicted_value, confidence)
 ```
 
 Note that we are ignoring two values returned by the predictor(). The two parameters are `encoded_true_value` and `decoded_true_value`. These are the values used internally by the ACLManager class to determine if the prediction is True of False. They are provided as a convenience, but otherwise aren't needed by the attacking code.
 ''')
 
 for atk_row, _, _ in alcm.predictor(known_columns, secret_column):
-    encoded_predicted_value, prediction_confidence = attack_prediction(alcm, df_anon, atk_row, secret_column, known_columns)
-    alcm.prediction(encoded_predicted_value, prediction_confidence)
+    encoded_predicted_value, confidence, abstain = attack_prediction(alcm, df_anon, atk_row, secret_column, known_columns)
+    if abstain:
+        alcm.abstention()
+    else:
+        alcm.prediction(encoded_predicted_value, confidence)
 
 print("\nThat's really all there is to it! There are a few ways in which we can now look at the results of the attack.")
 
@@ -168,7 +179,7 @@ cb()
 print(df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
 cb()
 
-print("\nAs it so happens, there is no correlation between 't1' and 'i2' or 'f1'. As a result, the baseline precision is always quite low, and different recall values don't really help. By contrast, because our anonymity is weak, attack precision is high uniformly high, so as it happens recall doesn't really matter here either. The fact that attack precision is greater than baseline precision leads to high ALC scores, showing that anonymity is indeed weak.")
+print("\nAs it so happens, there is no correlation between 't1' and 'i2' or 'f1'. As a result, the baseline precision is always quite low. By contrast, because our anonymity is weak, attack precision is high uniformly high. The fact that attack precision is greater than baseline precision leads to high ALC scores, showing that anonymity is indeed weak.")
 
 print("\nThe `paired` column indicates whether the ALC score is generated from a pair of closely-matched recall values for attack and baseline. If `False`, then the ALC score is generated from the best attack Privacy-Recall Coefficient (PRC) and the best baseline PRC regardless of recall. This represents the most appropriate ALC score (though in general not the highest ALC score).")
 
@@ -176,8 +187,11 @@ print("\nLet's run a second attack, here assuming that the attacker knows the va
 known_columns = ['i1']
 secret_column = alcm.get_discretized_column('t1')
 for atk_row, _, _ in alcm.predictor(known_columns, secret_column):
-    encoded_predicted_value, prediction_confidence = attack_prediction(alcm, df_anon, atk_row, secret_column, known_columns)
-    alcm.prediction(encoded_predicted_value, prediction_confidence)
+    encoded_predicted_value, confidence, abstain = attack_prediction(alcm, df_anon, atk_row, secret_column, known_columns)
+    if abstain:
+        alcm.abstention()
+    else:
+        alcm.prediction(encoded_predicted_value, confidence)
 
 print("\nLet's look at the precision, recall, and ALC scores for the second attack:")
 df_per_comb_results = alcm.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)

@@ -45,19 +45,13 @@ class ScoreInterval:
         if predict_type == 'base':
             new_row = pd.DataFrame({'prediction': [prediction], 'base_confidence': [confidence]})
             self.df_base = self._add_row(self.df_base, new_row)
-        elif confidence is not None:
-            # If confidence is None, that is a kind of abstention, and we don't want to
-            # use it as part of our score interval calculations
+        else:
             new_row = pd.DataFrame({'prediction': [prediction], 'attack_confidence': [confidence]})
             self.df_attack = self._add_row(self.df_attack, new_row)
 
 
 
     def get_alc_scores(self) -> List[Dict]:
-        '''
-        df_base and df_attack are the dataframes containing only the set of predictions
-        of interest (i.e. already grouped in some way).
-        '''
         alc_scores = []
         # sort df_base by base_confidence descending
         df_base = self.df_base.sort_values(by='base_confidence', ascending=False)
@@ -191,12 +185,10 @@ class ScoreInterval:
         attack_alc_score = None
         max_attack_prc = -1.0
         for score in alc_scores:
-            if score['base_si'] > self.halt_interval_thresh or score['attack_si'] > self.halt_interval_thresh:
-                continue
-            if score['base_prc'] > max_base_prc:
+            if score['base_si'] <= self.halt_interval_thresh and score['base_prc'] > max_base_prc:
                 max_base_prc = score['base_prc']
                 base_alc_score = score
-            if score['attack_prc'] > max_attack_prc:
+            if score['attack_si'] <= self.halt_interval_thresh and score['attack_prc'] > max_attack_prc:
                 max_attack_prc = score['attack_prc']
                 attack_alc_score = score
         return base_alc_score, attack_alc_score

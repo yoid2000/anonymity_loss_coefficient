@@ -77,10 +77,8 @@ class ALCManager:
         self.prediction_made = False
         self.encoded_predicted_value = None
         self.prediction_confidence = None
-        # This is the true value that predicted_value is compared against
-        self.encoded_true_value = None
-        # This is the True/False result of the prediction
-        self.prediction_result = None
+        # This is used when an abstention is made, and the baseline prediction is used
+        self.encoded_predicted_value_model = None
         # These contain information that the attacker can use to determine
         # why an attack loop halted
         self.halt_info = None
@@ -112,7 +110,7 @@ class ALCManager:
         # for the halting decision.
         ignore_value, ignore_fraction = self._get_target_to_ignore_for_halting(secret_column)
         if ignore_value is not None:
-            if ignore_fraction is 0.0:
+            if ignore_fraction == 0.0:
                 self.logger.info(f"Only one value in {secret_column}, so halt.")
                 self.halt_info = {'halted': True, 'reason': 'Only one value to attack. skipping.', 'num_attacks': 0}
                 return
@@ -135,13 +133,13 @@ class ALCManager:
                 # For the purpose of determining if the attack prediction is True or False,
                 # we determine the true value. The decoded_true_value is the true value 
                 # after decoding from the encoding done in pre-processing
-                self.encoded_true_value = atk_row[secret_column].iloc[0]
-                decoded_true_value = self.decode_value(secret_column, self.encoded_true_value)
+                encoded_true_value = atk_row[secret_column].iloc[0]
+                decoded_true_value = self.decode_value(secret_column, encoded_true_value)
 
                 # Determine if the row should be ignored or not for the purpose of
                 # the halting criteria.
                 if (ignore_value is not None and
-                    self.encoded_true_value == ignore_value and
+                    encoded_true_value == ignore_value and
                     random.random() > ignore_fraction):
                     continue
                 num_attacks += 1
@@ -151,22 +149,19 @@ class ALCManager:
                 # purpose of running the attack, so we separate them out.
                 df_query = atk_row[known_columns]
                 self.prediction_made = False
-                yield df_query, self.encoded_true_value, decoded_true_value
+                yield df_query, encoded_true_value, decoded_true_value
 
                 if self.prediction_made is False:
-                    raise ValueError("Error: No prediction was made in the predictor method. The caller must call the ALCManager prediction() method in each loop of the predictor.")
+                    raise ValueError("Error: No prediction or abstention was made in the predictor method. The caller must call the ALCManager prediction() or abstention() method in each loop of the predictor.")
                 self.prediction_made = False
-                if self.encoded_predicted_value is not None:
-                    decoded_predicted_value = self.decode_value(secret_column, self.encoded_predicted_value)
-                else:
-                    decoded_predicted_value = None
+                decoded_predicted_value = self.decode_value(secret_column, self.encoded_predicted_value)
                 self._add_result(predict_type='attack',
                                 known_columns=known_columns,
                                 secret_column=secret_column,
                                 decoded_predicted_value=decoded_predicted_value,
                                 decoded_true_value=decoded_true_value,
                                 encoded_predicted_value=self.encoded_predicted_value,
-                                encoded_true_value=self.encoded_true_value,
+                                encoded_true_value=encoded_true_value,
                                 attack_confidence=self.prediction_confidence,
                                 si_halt=si_halt)
                 if num_attacks % self.halt_check_count == 0:
@@ -185,17 +180,19 @@ class ALCManager:
                 self.rep.consolidate_results(si_halt.get_alc_scores())
                 return
 
-    def prediction(self, encoded_predicted_value: Any, prediction_confidence: float) -> bool:
+    def abstention(self) -> bool:
+        ''' In an abstention, we use the baseline prediction as our best guess, and set the
+            confidence to 0.0.
+        '''
+        self.prediction_made = True
+        self.encoded_predicted_value = self.encoded_predicted_value_model
+        self.prediction_confidence = 0.0
+
+
+    def prediction(self, encoded_predicted_value: Any, prediction_confidence: float) -> None:
         self.prediction_made = True
         self.encoded_predicted_value = encoded_predicted_value
         self.prediction_confidence = prediction_confidence
-        if self.encoded_predicted_value == self.encoded_true_value:
-            self.prediction_result = True
-        else:
-            self.prediction_result = False
-        # We return the result of the prediction to the caller as a convenience.
-        # This allows the caller to ensure that it agrees with the result.
-        return self.prediction_result
 
     def _model_prediction(self, row: pd.DataFrame,
                      secret_column: str,
@@ -203,16 +200,17 @@ class ALCManager:
                      si_halt: Optional[ScoreInterval]) -> None:
         # get the prediction for the row
         df_row = row[known_columns]  # This is already a DataFrame
-        encoded_predicted_value, proba = self.predict(df_row)
+        # We save the model prediction in case the caller makes an abstention
+        self.encoded_predicted_value_model, proba = self.predict(df_row)
         encoded_true_value = row[secret_column].iloc[0]
-        decoded_predicted_value = self.decode_value(secret_column, encoded_predicted_value)
+        decoded_predicted_value_model = self.decode_value(secret_column, self.encoded_predicted_value_model)
         decoded_true_value = self.decode_value(secret_column, encoded_true_value)
         self._add_result(predict_type='base',
                          known_columns=known_columns,
                          secret_column=secret_column,
-                         decoded_predicted_value=decoded_predicted_value,
+                         decoded_predicted_value=decoded_predicted_value_model,
                          decoded_true_value=decoded_true_value,
-                         encoded_predicted_value=encoded_predicted_value,
+                         encoded_predicted_value=self.encoded_predicted_value_model,
                          encoded_true_value=encoded_true_value,
                          base_confidence=proba,
                          si_halt=si_halt)
@@ -269,10 +267,6 @@ class ALCManager:
                    si_halt: Optional[ScoreInterval] = None,
                    ) -> None:
 
-        if base_confidence is not None and base_confidence == 0:
-            base_confidence = None
-        if attack_confidence is not None and attack_confidence == 0:
-            attack_confidence = None
         self.rep.add_known_columns(known_columns)
         self.rep.add_secret_column(secret_column)
         # sort known_columns
@@ -339,7 +333,7 @@ class ALCManager:
         # if further attacks are likely to yield a better ALC.
         # Sort alc_scores from highest to lowest 'attack_recall'
         attack_prcs = self._get_significant_attack_prcs(alc_scores)
-        if len(attack_prcs) == len(alc_scores) and len(si_halt.df_base) > 200 or len(si_halt.df_attack) > 200:
+        if len(attack_prcs) == len(alc_scores) and (len(si_halt.df_base) > 200 or len(si_halt.df_attack) > 200):
             # This occurs if all alc_scores are significant (have attack_si and
             # base_si < halt_interval_thresh). Further attacks will only normally reduce
             # the already measured precision score intervals, not yield still lower

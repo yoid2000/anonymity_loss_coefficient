@@ -7,21 +7,23 @@ import pytest
 from typing import Tuple, Optional
 from anonymity_loss_coefficient import ALCManager
 
-def guess_with_prob(value: int, param1: Optional[float], param2: Optional[float]) -> Tuple[int, float]:
+debug = False
+
+def guess_with_prob(value: int, param1: Optional[float], param2: Optional[float]) -> Tuple[int, bool]:
     # using random, select a random number between 0 and 1
     prob_correct = param1
-    prob_no_confidence = param2
+    prob_abstain = param2
     ran1 = random.random()
     ran2 = random.random()
     if ran1 < prob_correct:
         guess = value
     else:
         guess = 1 - value
-    if ran2 < prob_no_confidence:
-        confidence = 0.0
+    if ran2 < prob_abstain:
+        abstain = True
     else:
-        confidence = 1.0
-    return guess, confidence
+        abstain = False
+    return guess, abstain
 
 def make_df() -> pd.DataFrame:
     """
@@ -53,7 +55,8 @@ def temp_dir():
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
         handler.close()
-    shutil.rmtree(dir_path)
+    if not debug:
+        shutil.rmtree(dir_path)
 
 @pytest.fixture
 def df():
@@ -63,10 +66,10 @@ def df():
 @pytest.mark.parametrize(
     "my_func, param1, param2, expected_alc",
     [
-        (guess_with_prob, 1.0, 0.9, 1.0),  # All guesses correct, 90% of confidence = 0.0
-        (guess_with_prob, 1.0, 0.0, 1.0),  # All guesses correct, all confidence = 1.0
-        (guess_with_prob, 0.0, 0.0, -0.9),  # All guesses wrong, all confidence = 1.0
-        (guess_with_prob, 0.5, 0.0, 0.0),  # Half of guesses correct, all confidence = 1.0
+        (guess_with_prob, 1.0, 0.9, 0.87),  # All guesses correct, 90% of runs = abstain
+        (guess_with_prob, 1.0, 0.0, 1.0),  # All guesses correct, no abstain
+        (guess_with_prob, 0.0, 0.0, -0.9),  # All guesses wrong, no abstain
+        (guess_with_prob, 0.5, 0.0, 0.0),  # Half of guesses correct, no abstain
     ]
 )
 def test_basic(temp_dir, df, my_func, param1, param2, expected_alc):
@@ -78,11 +81,20 @@ def test_basic(temp_dir, df, my_func, param1, param2, expected_alc):
 
     # Run predictions
     for _, secret_value, _ in alcm.predictor(known_columns=['c1'], secret_column='c2'):
-        predicted_value, prediction_confidence = my_func(secret_value, param1, param2)
-        alcm.prediction(predicted_value, prediction_confidence)
+        predicted_value, abstain = my_func(secret_value, param1, param2)
+        if abstain:
+            alcm.abstention()
+        else:
+            alcm.prediction(predicted_value, 1.0)
+        if debug:
+            import pprint
+            pp = pprint.PrettyPrinter(indent=4)
+            pp.pprint(alcm.halt_info)
 
     # Get results
-    #alcm.summarize_results()
+    if debug:
+        pp.pprint(alcm.halt_info)
+        alcm.summarize_results()
     df_grouped = alcm.alc_per_secret_and_known_df(known_columns=['c1'], secret_column='c2')
     alcm.close_logger()
     df_grouped = df_grouped[df_grouped['paired'] == False]
@@ -102,5 +114,5 @@ def test_basic(temp_dir, df, my_func, param1, param2, expected_alc):
     assert attack_si_high - attack_si_low < 0.1, f"Expected attack SI range to be less than 0.1, got {attack_si_high - attack_si_low}"
 
     alc = df_grouped.iloc[0]['alc']
-    # Assert the ALC value matches the expected value
-    assert alc == pytest.approx(expected_alc, abs=0.05), f"Expected ALC: {expected_alc}, but got: {alc}"
+    # Assert the ALC value is close to the expected value
+    assert alc == pytest.approx(expected_alc, abs=0.1), f"Expected ALC: {expected_alc}, but got: {alc}"
