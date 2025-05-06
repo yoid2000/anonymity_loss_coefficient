@@ -148,14 +148,14 @@ for atk_row, _, _ in alcm.predictor(known_columns, secret_column):
 
 print("\nThat's really all there is to it! There are a few ways in which we can now look at the results of the attack.")
 
-print("\nAfter the predictions loop, we can get a dataframe listing every prediction using the `get_results_df()` method. Here is an example of a row for an individual attack prediction:")
+print("\nAfter the predictions loop, we can get a dataframe listing every prediction using the `prediction_results()` method. Here is an example of a row for an individual attack prediction:")
 print('''
 ```
-df_results = alcm.get_results_df()
+df_results = alcm.prediction_results()
 print(df_results[df_results['predict_type'] == 'attack'].iloc[0])
 ```
 ''')
-df_results = alcm.get_results_df()
+df_results = alcm.prediction_results()
 cb()
 print(df_results[df_results['predict_type'] == 'attack'].iloc[0])
 cb()
@@ -169,9 +169,9 @@ cb()
 print(df_results[df_results['predict_type'] == 'attack']['attack_confidence'].unique())
 cb()
 
-print("\nThe method `alc_per_secret_and_known_df()` groups the individual attack predictions by secret column and known columns, and computes a variety of scores including precision, recall, and ALC. When there are multiple confidence levels, the PredictionResults class computes the ALC for different recall values starting with only the highest confidence predictions (low recall), and working through lower confidence predictions.")
-print("\n`df_per_comb_results = alcm.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)`")
-df_per_comb_results = alcm.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)
+print("\nThe method `results()` groups the individual attack predictions by secret column and known columns, and computes a variety of scores including precision, recall, and ALC. When there are multiple confidence levels, the PredictionResults class computes the ALC for different recall values starting with only the highest confidence predictions (low recall), and working through lower confidence predictions.")
+print("\n`df_per_comb_results = alcm.results(known_columns=known_columns, secret_column=secret_column)`")
+df_per_comb_results = alcm.results(known_columns=known_columns, secret_column=secret_column)
 
 print("\nLet's look at the precision, recall, and ALC scores:")
 print("\n`df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']]`")
@@ -194,7 +194,7 @@ for atk_row, _, _ in alcm.predictor(known_columns, secret_column):
         alcm.prediction(encoded_predicted_value, confidence)
 
 print("\nLet's look at the precision, recall, and ALC scores for the second attack:")
-df_per_comb_results = alcm.alc_per_secret_and_known_df(known_columns=known_columns, secret_column=secret_column)
+df_per_comb_results = alcm.results(known_columns=known_columns, secret_column=secret_column)
 cb()
 print(df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
 cb()

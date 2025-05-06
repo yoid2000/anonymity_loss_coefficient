@@ -194,6 +194,15 @@ class ALCManager:
         self.encoded_predicted_value = encoded_predicted_value
         self.prediction_confidence = prediction_confidence
 
+    def results(self, known_columns: Optional[List[str]] = None,
+                      secret_column: Optional[str] = None) -> Optional[pd.DataFrame]:
+        return self.alc_per_secret_and_known_df(known_columns, secret_column)
+
+    def prediction_results(self,
+                       known_columns: Optional[List[str]] = None,
+                       secret_column: Optional[str] = None) -> Optional[pd.DataFrame]:
+        return self.get_results_df(known_columns, secret_column)
+
     def _model_prediction(self, row: pd.DataFrame,
                      secret_column: str,
                      known_columns: List[str],

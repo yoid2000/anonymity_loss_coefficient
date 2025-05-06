@@ -95,7 +95,7 @@ def test_basic(temp_dir, df, my_func, param1, param2, expected_alc):
     if debug:
         pp.pprint(alcm.halt_info)
         alcm.summarize_results()
-    df_grouped = alcm.alc_per_secret_and_known_df(known_columns=['c1'], secret_column='c2')
+    df_grouped = alcm.results(known_columns=['c1'], secret_column='c2')
     alcm.close_logger()
     df_grouped = df_grouped[df_grouped['paired'] == False]
     print("---------------------")
