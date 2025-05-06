@@ -9,7 +9,7 @@ defaults = {
     'halt_thresh_low': 0.25,
     'halt_thresh_high': 0.9,
     'halt_interval_thresh': 0.1,
-    'halt_min_significant_attack_prcs': 3,
+    'halt_min_significant_attack_prcs': 3,  # Must be at least 3
     'halt_min_prc_improvement': 0.01,
     'halt_check_count': 20,
     'flush': False,

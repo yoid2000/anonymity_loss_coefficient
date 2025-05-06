@@ -51,14 +51,14 @@ class ScoreInterval:
 
 
 
-    def get_alc_scores(self) -> List[Dict]:
+    def get_alc_scores(self, num_prc_measures: int) -> List[Dict]:
         alc_scores = []
         # sort df_base by base_confidence descending
         df_base = self.df_base.sort_values(by='base_confidence', ascending=False)
         atk_confs = sorted(self.df_attack['attack_confidence'].unique(), reverse=True)
         atk_confs = [x for x in atk_confs if pd.notna(x)]
-        # limit atk_confs to 10 values, because there can be very many
-        atk_confs = _select_evenly_distributed_values(atk_confs)
+        # limit atk_confs to num_prc_measures values, because there can be very many
+        atk_confs = _select_evenly_distributed_values(atk_confs, num_prc_measures)
         for atk_conf in atk_confs:
             df_atk_conf = self.df_attack[self.df_attack['attack_confidence'] >= atk_conf]
             num_predictions = len(df_atk_conf)
@@ -116,7 +116,7 @@ class ScoreInterval:
                 'attack_si_low': attack_low,
                 'attack_si_high': attack_high,
             })
-        # We alc_scores so far have closely matching base and attack recalls. However,
+        # The alc_scores so far have closely matching base and attack recalls. However,
         # we want to compute an ALC score using the best base and attack PRC values,
         # even though they may have different recall values.
         base_best_score, attack_best_score = self._get_score_from_max_significant_prcs(alc_scores)
@@ -219,12 +219,12 @@ class ScoreInterval:
         return lower_bound, upper_bound
 
 
-def _select_evenly_distributed_values(sorted_list):
+def _select_evenly_distributed_values(sorted_list: list, num_prc_measures: int) -> List[float]:
     '''
-    This limits the number of values in the list to 10 values, evenly distributed.
+    This splits the confidence values into num_prc_measures evenly spaced values.
     Note by the way that this is being used on the attack confidence values.
     '''
-    if len(sorted_list) <= 10:
+    if len(sorted_list) <= num_prc_measures:
         return sorted_list
     selected_values = [sorted_list[0]]
     step_size = (len(sorted_list) - 1) / 9
