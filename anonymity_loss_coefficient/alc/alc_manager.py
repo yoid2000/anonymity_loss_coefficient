@@ -378,12 +378,6 @@ class ALCManager:
         if len(sig_attack_prcs) < self.halt_min_significant_attack_prcs:
             ret.update({'halted':False, 'reason':f'too few significant attack prc measures ({len(sig_attack_prcs)})', 'halt_code': 'none'})
             return ret
-        # In spite of still having non-significant attack PRC measures, if no
-        # progress has been made at all in the last two significant PRC measures,
-        # let's give up.
-        if False and sig_attack_prcs[-1] < sig_attack_prcs[-2]:
-            ret.update({'halted':True, 'reason':f'attack prc measures not improving more than {self.halt_min_prc_improvement}', 'halt_code': 'no_improve_some_sig'})
-            return ret
         ret.update({'halted':False, 'reason':'halt conditions not met', 'halt_code': 'none'})
         return ret
 
