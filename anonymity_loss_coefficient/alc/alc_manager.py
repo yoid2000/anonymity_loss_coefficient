@@ -100,10 +100,11 @@ class ALCManager:
         caller must make an attack prediction in each loop. This method determines
         when enough predictions have been made to produce a good ALC score.
         """
+        self.num_prc_measures = self.halt_min_significant_attack_prcs
         # First check if we have already run this attack.
         if self.rep.already_attacked(secret_column, known_columns):
             self.logger.info(f"Already ran attack on {secret_column} with known columns {known_columns}. Skipping.")
-            self.halt_info = {'halted': True, 'reason': 'attack already run. skipping.', 'num_attacks': 0}
+            self.halt_info = {'halted': True, 'reason': 'attack already run. skipping.', 'num_attacks': 0, 'halt_code': 'skip'}
             return
 
         # Establish the targets to ignore, if any, and make a ScoreInterval object
@@ -112,7 +113,7 @@ class ALCManager:
         if ignore_value is not None:
             if ignore_fraction == 0.0:
                 self.logger.info(f"Only one value in {secret_column}, so halt.")
-                self.halt_info = {'halted': True, 'reason': 'Only one value to attack. skipping.', 'num_attacks': 0}
+                self.halt_info = {'halted': True, 'reason': 'Only one value to attack. skipping.', 'num_attacks': 0, 'halt_code': 'one_value'}
                 return
             decoded_ignore_value = self.decode_value(secret_column, ignore_value)
             self.logger.info(f"The value {decoded_ignore_value} constitutes {round((100*(1-ignore_fraction)),2)} % of column {secret_column}, so we'll ignore a proportional fraction of those values in the attacks so that our results are better balanced.")
@@ -122,7 +123,7 @@ class ALCManager:
         self._init_cntl_and_build_model(known_columns, secret_column)
 
         num_attacks = 0
-        self.halt_info = {'halted': False, 'reason': 'halt not yet checked', 'num_attacks': 1}
+        self.halt_info = {'halted': False, 'reason': 'halt not yet checked', 'num_attacks': 1, 'halt_code': 'none'}
         self.attack_in_progress = True
         while True:
             for i in range(len(self.df.cntl)):
@@ -171,13 +172,13 @@ class ALCManager:
                 self.logger.debug(pp.pformat(self.halt_info))
                 if self.halt_info['halted'] is True:
                     self.attack_in_progress = False
-                    self.rep.consolidate_results(si_halt.get_alc_scores())
+                    self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'])
                     return
             is_assigned = self._next_cntl_and_build_model()
             if is_assigned is False:
-                self.halt_info = {'halted': False, 'reason': 'exhausted all rows',  'num_attacks': num_attacks}
+                self.halt_info = {'halted': True, 'reason': 'exhausted all rows',  'num_attacks': num_attacks, 'halt_code': 'exhausted'}
                 self.attack_in_progress = False
-                self.rep.consolidate_results(si_halt.get_alc_scores())
+                self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'])
                 return
 
     def abstention(self) -> bool:
@@ -322,40 +323,62 @@ class ALCManager:
 
     def _ok_to_halt(self, si_halt: ScoreInterval) -> Dict[str, Any]:
         if len(si_halt.df_base) < 10 or len(si_halt.df_attack) < 10:
-            return {'halted': False, 'reason': f'not enough samples {len(si_halt.df_base)} base, {len(si_halt.df_attack)} attack'}
-        alc_scores = si_halt.get_alc_scores()
+            return {'halted': False, 'reason': f'not enough samples {len(si_halt.df_base)} base, {len(si_halt.df_attack)} attack', 'halt_code': 'none'}
+        alc_scores = si_halt.get_alc_scores(self.num_prc_measures)
         # put the values of alc_scores['paired'] into a list called paired
         if len(alc_scores) == 0:
-            return {'halted': False, 'reason':f'no alc scores with attack and base score intervals < {self.max_score_interval}'}
+            return {'halted': False, 'reason':f'no alc scores with attack and base score intervals < {self.max_score_interval}', 'halt_code': 'none'}
         best_alc_score, alc_scores = si_halt.split_scores(alc_scores)
         if best_alc_score is None:
-            return {'halted': False, 'reason':f'no prc scores with attack and base score intervals < {self.halt_interval_thresh}'}
+            return {'halted': False, 'reason':f'no prc scores with attack and base score intervals < {self.halt_interval_thresh}', 'halt_code': 'none'}
 
         ret = best_alc_score
         if ret['alc_high'] < self.halt_thresh_low:
-            ret.update({'halted':True, 'reason':'alc extremely low'})
+            ret.update({'halted':True, 'reason':'alc extremely low', 'halt_code': 'extreme_low'})
             return ret
         if ret['alc_low'] > self.halt_thresh_high:
-            ret.update({'halted':True, 'reason':'alc extremely high'})
+            ret.update({'halted':True, 'reason':'alc extremely high', 'halt_code': 'extreme_high'})
             return ret
         # We didn't halt because of extreme high or low ALC, so now we want to determine
         # if further attacks are likely to yield a better ALC.
         # Sort alc_scores from highest to lowest 'attack_recall'
-        attack_prcs = self._get_significant_attack_prcs(alc_scores)
-        if len(attack_prcs) == len(alc_scores) and (len(si_halt.df_base) > 200 or len(si_halt.df_attack) > 200):
+        sig_attack_prcs = self._get_significant_attack_prcs(alc_scores)
+        if len(sig_attack_prcs) == len(alc_scores):
             # This occurs if all alc_scores are significant (have attack_si and
-            # base_si < halt_interval_thresh). Further attacks will only normally reduce
-            # the already measured precision score intervals, not yield still lower
-            # recall values.
-            ret.update({'halted':True, 'reason':f'all {len(attack_prcs)} attack prc measures significant'})
+            # base_si < halt_interval_thresh). Make sure we have 200 predictions
+            # so that we've given an adequate opportunity to get all the confidence
+            # values we're likely to get.
+            if len(si_halt.df_base) < 200 and len(si_halt.df_attack) < 200:
+                ret.update({'halted':False, 'reason':f'not enough samples to have adequate predictions when all attack prc measures {len(sig_attack_prcs)} significant', 'halt_code': 'none'})
+                return ret
+
+            # Check if there are simply not very many different confidence values,
+            # because if so, then more attacks aren't going to help much because we
+            # aren't likely to get more different confidence values.
+            if len(sig_attack_prcs) < self.num_prc_measures:
+                ret.update({'halted':True, 'reason':f'all {len(sig_attack_prcs)} attack prc measures significant', 'halt_code': 'all_sig'})
+                return ret
+            
+            # Check to see if we aren't making significant improvement by reducing
+            # recall. If not we halt, but if we are, we increase num_prc_measures so
+            # as to dig out still lower recall values.
+            if ((sig_attack_prcs[-1] - sig_attack_prcs[-2] >= self.halt_min_prc_improvement)
+                and (sig_attack_prcs[-2] - sig_attack_prcs[-3] >= self.halt_min_prc_improvement)
+               ): 
+                self.num_prc_measures += 1
+                ret.update({'halted':False, 'reason':f'still improving at {len(sig_attack_prcs)} significant attack prc measures', 'halt_code': 'none'})
+                return ret
+            ret.update({'halted':True, 'reason':f'all {len(sig_attack_prcs)} attack prc measures significant with no improvement', 'halt_code': 'no_improve_all_sig'})
             return ret
-        if len(attack_prcs) < self.halt_min_significant_attack_prcs:
-            ret.update({'halted':False, 'reason':f'too few significant attack prc measures ({len(attack_prcs)})'})
+        # If we get here, it means that there are some PRC measures that are
+        # not yet significant. This means that we have a chance to get better
+        # PRC scores with the set of confidence values we currently have.
+
+        # Let's not give up if we don't have many significant attack prc measures.
+        if len(sig_attack_prcs) < self.halt_min_significant_attack_prcs:
+            ret.update({'halted':False, 'reason':f'too few significant attack prc measures ({len(sig_attack_prcs)})', 'halt_code': 'none'})
             return ret
-        if attack_prcs[-1] - attack_prcs[-2] < self.halt_min_prc_improvement:
-            ret.update({'halted':True, 'reason':f'attack prc measures not improving more than {self.halt_min_prc_improvement}'})
-            return ret
-        ret.update({'halted':False, 'reason':'halt conditions not met'})
+        ret.update({'halted':False, 'reason':'halt conditions not met', 'halt_code': 'none'})
         return ret
 
     # Following are the methods that use DataFiles

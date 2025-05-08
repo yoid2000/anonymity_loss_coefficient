@@ -73,8 +73,8 @@ def launch_attack(data: str,
         brm.run_one_attack(secret_column=secret[0], known_columns=known)
         return
     if known is None:
-        brm.run_all_columns_attack(secret_cols=secret)
-    brm.run_auto_attack(secret_cols=secret, known_columns=known)
+        brm.run_all_columns_attack(secret_columns=secret)
+    brm.run_auto_attack(secret_columns=secret, known_columns=known)
 
 def main():
     # Create the argument parser
