@@ -22,7 +22,7 @@ We currently don't recognize datetime columns as datetime columns.
 from anonymity_loss_coefficient.attacks import BrmAttack
 
 brm = BrmAttack(df_original=df_original,
-                df_synthetic=syn_dfs,
+                anon_list=syn_dfs,
                 results_path=results_path,
                 )
 ```
@@ -30,7 +30,7 @@ brm = BrmAttack(df_original=df_original,
 The required parameters are:
 
 * `df_original` is the original dataset.
-* `df_synthetic` is a list of one or more anonymized datasets. 
+* `anon_list` is a list of one or more anonymized datasets. 
 * `results_path` is a path to the directory where the results of the attack should be stored.
 
 

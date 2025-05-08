@@ -8,7 +8,7 @@ from .defaults import defaults
 class DataFiles:
     def __init__(self,
                  df_original: pd.DataFrame,
-                 df_synthetic: Union[pd.DataFrame, List[pd.DataFrame]],
+                 anon_list: Union[pd.DataFrame, List[pd.DataFrame]],
                  disc_max: int = defaults['disc_max'],
                  disc_bins: int = defaults['disc_bins'],
                  discretize_in_place: bool = defaults['discretize_in_place'],
@@ -34,14 +34,14 @@ class DataFiles:
         self.orig_all = df_original
         self.original_columns = df_original.columns.tolist()
 
-        if isinstance(df_synthetic, pd.DataFrame):
-            self.syn_list = [df_synthetic]
-        elif isinstance(df_synthetic, list) and all(isinstance(df, pd.DataFrame) for df in df_synthetic):
-            self.syn_list = df_synthetic
+        if isinstance(anon_list, pd.DataFrame):
+            self.anon_list = [anon_list]
+        elif isinstance(anon_list, list) and all(isinstance(df, pd.DataFrame) for df in anon_list):
+            self.anon_list = anon_list
         else:
-            raise ValueError("df_synthetic must be either a pandas DataFrame or a list of pandas DataFrames")
+            raise ValueError("anon_list must be either a pandas DataFrame or a list of pandas DataFrames")
         self.orig_all = self.orig_all.dropna()
-        self.syn_list = [df.dropna() for df in self.syn_list]
+        self.anon_list = [df.dropna() for df in self.anon_list]
 
         # Find numeric columns with more than disc_max unique values in df_orig_all
         numeric_cols = self.orig_all.select_dtypes(include=[np.number]).columns
@@ -52,7 +52,7 @@ class DataFiles:
         self.new_discretized_columns = [f"{col}__discretized" for col in self.columns_for_discretization]
 
         # Determine the min and max values for each column to discretize from all DataFrames
-        combined_min_max = pd.concat([self.orig_all] + self.syn_list)
+        combined_min_max = pd.concat([self.orig_all] + self.anon_list)
         discretizers = {}
         for col in self.columns_for_discretization:
             min_val = combined_min_max[col].min()
@@ -65,9 +65,9 @@ class DataFiles:
             discretizer.bin_edges_ = np.array([bin_edges])
             discretizers[col] = discretizer
 
-        # Discretize the columns in df_orig_all and syn_list using the same bin widths
+        # Discretize the columns in df_orig_all and anon_list using the same bin widths
         self._discretize_df(self.orig_all, discretizers)
-        for i, df in enumerate(self.syn_list):
+        for i, df in enumerate(self.anon_list):
             self._discretize_df(df, discretizers)
 
         # set columns_to_encode to be all columns that are not integer and not
@@ -75,10 +75,10 @@ class DataFiles:
         columns_to_encode = self.orig_all.select_dtypes(exclude=[np.int64, np.int32]).columns
         if self.discretize_in_place is False:
             columns_to_encode = [col for col in columns_to_encode if col not in self.columns_for_discretization]
-        self._encoders = self.fit_encoders(columns_to_encode, [self.orig_all] + self.syn_list)
+        self._encoders = self.fit_encoders(columns_to_encode, [self.orig_all] + self.anon_list)
 
         self._transform_df(self.orig_all)
-        for i, df in enumerate(self.syn_list):
+        for i, df in enumerate(self.anon_list):
             self._transform_df(df)
 
         # As a final step, we want to classify all columns as categorical or continuous
