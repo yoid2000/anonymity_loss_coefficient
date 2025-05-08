@@ -14,7 +14,7 @@ pp = pprint.PrettyPrinter(indent=4)
 class BrmAttack:
     def __init__(self,
                  df_original: pd.DataFrame,
-                 anon_list: Union[pd.DataFrame, List[pd.DataFrame]],
+                 anon: Union[pd.DataFrame, List[pd.DataFrame]],
                  results_path: str = None,
                  max_known_col_sets: int = 1000,
                  known_cols_sets_unique_threshold: float = 0.45,
@@ -42,7 +42,7 @@ class BrmAttack:
         self.logger = setup_logging(log_file_path=logger_path, file_level=file_level)
         self.logger.info(f"Original columns: {self.original_columns}")
         self.alcm = ALCManager(df_original,
-                               anon_list,
+                               anon,
                                results_path = self.results_path,
                                attack_name = self.attack_name,
                                logger=self.logger,
@@ -134,7 +134,7 @@ class BrmAttack:
                           known_columns: List[str]) -> Tuple[Any, float]:
         best_confidence = -1
         best_pred_value = None
-        for df_syn in self.alcm.df.anon_list:
+        for df_syn in self.alcm.df.anon:
             # Check if secret_column is in df_syn
             if secret_column not in df_syn.columns:
                 continue

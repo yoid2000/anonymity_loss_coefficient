@@ -227,8 +227,8 @@ def _select_evenly_distributed_values(sorted_list: list, num_prc_measures: int) 
     if len(sorted_list) <= num_prc_measures:
         return sorted_list
     selected_values = [sorted_list[0]]
-    step_size = (len(sorted_list) - 1) / 9
-    for i in range(1, 9):
+    step_size = (len(sorted_list) - 1) / (num_prc_measures - 1)
+    for i in range(1, num_prc_measures - 1):
         index = int(round(i * step_size))
         selected_values.append(sorted_list[index])
     selected_values.append(sorted_list[-1])

@@ -62,7 +62,7 @@ def launch_attack(data: str,
             syn_dfs.append(pd.read_parquet(os.path.join(synthetic_path, file)))
     results_path = os.path.join(data, 'results')
     brm = BrmAttack(df_original=df_original,
-                    anon_list=syn_dfs,
+                    anon=syn_dfs,
                     results_path=results_path,
                     attack_name = name,
                     verbose = verbose,

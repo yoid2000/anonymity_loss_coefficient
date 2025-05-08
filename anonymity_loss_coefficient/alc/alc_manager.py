@@ -19,7 +19,7 @@ pp = pprint.PrettyPrinter(indent=4)
 
 class ALCManager:
     def __init__(self, df_original: pd.DataFrame,
-                       anon_list: Union[pd.DataFrame, List[pd.DataFrame]],
+                       anon: Union[pd.DataFrame, List[pd.DataFrame]],
                        results_path: str,
                        attack_name: str = '',
                        logger: logging.Logger = None,
@@ -41,7 +41,7 @@ class ALCManager:
                        ) -> None:
         self.df = DataFiles(
                  df_original=df_original,
-                 anon_list=anon_list,
+                 anon=anon,
                  disc_max=disc_max,
                  disc_bins=disc_bins,
                  discretize_in_place=discretize_in_place,
@@ -416,7 +416,7 @@ class ALCManager:
         df = self.df.orig
         if self.use_anon_for_baseline:
             # This is purely for experimentation and should not be used otherwise
-            df = self.df.anon_list[0]
+            df = self.df.anon[0]
         self.base_pred.build_model(df, known_columns, secret_column, self.random_state)
 
     def _next_cntl_and_build_model(self) -> bool:
@@ -426,7 +426,7 @@ class ALCManager:
         df = self.df.orig
         if self.use_anon_for_baseline:
             # This is purely for experimentation and should not be used otherwise
-            df = self.df.anon_list[0]
+            df = self.df.anon[0]
         self.base_pred.build_model(df)
         return True
 
