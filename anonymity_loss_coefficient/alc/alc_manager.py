@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import logging
 import random
+import time
 from .reporting import *
 from .data_files import DataFiles
 from .baseline_predictor import BaselinePredictor
@@ -82,6 +83,8 @@ class ALCManager:
         # These contain information that the attacker can use to determine
         # why an attack loop halted
         self.halt_info = None
+        # Other
+        self.start_time = None
 
     def close_logger(self):
         """Closes all handlers attached to the logger."""
@@ -100,6 +103,8 @@ class ALCManager:
         caller must make an attack prediction in each loop. This method determines
         when enough predictions have been made to produce a good ALC score.
         """
+        self.start_time = time.time()
+        end_time = None
         self.num_prc_measures = self.halt_min_significant_attack_prcs
         # First check if we have already run this attack.
         if self.rep.already_attacked(secret_column, known_columns):
@@ -170,15 +175,20 @@ class ALCManager:
                     self.halt_info = self._ok_to_halt(si_halt)
                 self.halt_info.update({'num_attacks': num_attacks})
                 self.logger.debug(pp.pformat(self.halt_info))
+                endtime = time.time()
+                elapsed_time = round(endtime - self.start_time, 4)
+                self.halt_info.update({'elapsed_time': elapsed_time})
                 if self.halt_info['halted'] is True:
                     self.attack_in_progress = False
-                    self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'])
+                    self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'])
                     return
             is_assigned = self._next_cntl_and_build_model()
             if is_assigned is False:
-                self.halt_info = {'halted': True, 'reason': 'exhausted all rows',  'num_attacks': num_attacks, 'halt_code': 'exhausted'}
+                endtime = time.time()
+                elapsed_time = round(endtime - self.start_time, 4)
+                self.halt_info = {'halted': True, 'reason': 'exhausted all rows',  'num_attacks': num_attacks, 'halt_code': 'exhausted', 'elapsed_time': elapsed_time}
                 self.attack_in_progress = False
-                self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'])
+                self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'])
                 return
 
     def abstention(self) -> bool:
