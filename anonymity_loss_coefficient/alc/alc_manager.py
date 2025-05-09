@@ -83,6 +83,7 @@ class ALCManager:
         # These contain information that the attacker can use to determine
         # why an attack loop halted
         self.halt_info = None
+        self.do_early_halt = False
         # Other
         self.start_time = None
 
@@ -104,6 +105,7 @@ class ALCManager:
         when enough predictions have been made to produce a good ALC score.
         """
         self.start_time = time.time()
+        self.do_early_halt = False
         self.num_prc_measures = self.halt_min_significant_attack_prcs
         # First check if we have already run this attack.
         if self.rep.already_attacked(secret_column, known_columns):
@@ -350,19 +352,25 @@ class ALCManager:
         if len(si_halt.df_base) < 50 or len(si_halt.df_attack) < 50:
             return {'halted': False, 'reason': f'not enough samples {len(si_halt.df_base)} base, {len(si_halt.df_attack)} attack', 'halt_code': 'none'}
         alc_scores = si_halt.get_alc_scores(self.num_prc_measures)
-        early_halt = self._check_for_early_halt(alc_scores)
-        if early_halt == 'high':
-            return {'halted': True, 'reason': 'alc extremely high', 'halt_code': 'extreme_high'}
-        elif early_halt == 'low':
-            return {'halted': True, 'reason': 'alc extremely low', 'halt_code': 'extreme_low'}
+        if self.do_early_halt is False:
+            early_halt_status = self._check_for_early_halt(alc_scores)
+            if early_halt_status == 'high':
+                self.do_early_halt = True
+                return {'halted': False, 'reason': 'do extremely high', 'halt_code': 'none'}
+            elif early_halt_status == 'low':
+                self.do_early_halt = True
+                return {'halted': False, 'reason': 'do extremely low', 'halt_code': 'none'}
         # put the values of alc_scores['paired'] into a list called paired
         if len(alc_scores) == 0:
-            return {'halted': False, 'reason':f'no alc scores with attack and base score intervals < {self.max_score_interval}', 'halt_code': 'none'}
+            return {'halted': False, 'reason':f'no alc scores with attack and base score intervals < {self.max_score_interval} (early halt {self.do_early_halt})', 'halt_code': 'none'}
         best_alc_score, alc_scores = si_halt.split_scores(alc_scores)
         if best_alc_score is None:
-            return {'halted': False, 'reason':f'no prc scores with attack and base score intervals < {self.halt_interval_thresh}', 'halt_code': 'none'}
+            return {'halted': False, 'reason':f'no prc scores with attack and base score intervals < {self.halt_interval_thresh} (early halt {self.do_early_halt})', 'halt_code': 'none'}
 
         ret = best_alc_score
+        if self.do_early_halt is True:
+            ret.update({'halted':True, 'reason':'early halt', 'halt_code': 'early_halt'})
+            return ret
         if ret['alc_high'] < self.halt_thresh_low:
             ret.update({'halted':True, 'reason':'alc extremely low', 'halt_code': 'extreme_low'})
             return ret
@@ -379,7 +387,7 @@ class ALCManager:
             # so that we've given an adequate opportunity to get all the confidence
             # values we're likely to get.
             if len(si_halt.df_base) < 200 and len(si_halt.df_attack) < 200:
-                ret.update({'halted':False, 'reason':f'not enough samples to have adequate predictions when all attack prc measures {len(sig_attack_prcs)} significant', 'halt_code': 'none'})
+                ret.update({'halted':False, 'reason':f'not enough samples to have adequate predictions when all attack prc measures {len(sig_attack_prcs)} significant (early halt {self.do_early_halt})', 'halt_code': 'none'})
                 return ret
 
             # Check if there are simply not very many different confidence values,
@@ -396,7 +404,7 @@ class ALCManager:
                 and (sig_attack_prcs[-2] - sig_attack_prcs[-3] >= self.halt_min_prc_improvement)
                ): 
                 self.num_prc_measures += 1
-                ret.update({'halted':False, 'reason':f'still improving at {len(sig_attack_prcs)} significant attack prc measures', 'halt_code': 'none'})
+                ret.update({'halted':False, 'reason':f'still improving at {len(sig_attack_prcs)} significant attack prc measures (early halt {self.do_early_halt})', 'halt_code': 'none'})
                 return ret
             ret.update({'halted':True, 'reason':f'all {len(sig_attack_prcs)} attack prc measures significant with no improvement', 'halt_code': 'no_improve_all_sig'})
             return ret
@@ -406,9 +414,9 @@ class ALCManager:
 
         # Let's not give up if we don't have many significant attack prc measures.
         if len(sig_attack_prcs) < self.halt_min_significant_attack_prcs:
-            ret.update({'halted':False, 'reason':f'too few significant attack prc measures ({len(sig_attack_prcs)})', 'halt_code': 'none'})
+            ret.update({'halted':False, 'reason':f'too few significant attack prc measures ({len(sig_attack_prcs)}) (early halt {self.do_early_halt})', 'halt_code': 'none'})
             return ret
-        ret.update({'halted':False, 'reason':'halt conditions not met', 'halt_code': 'none'})
+        ret.update({'halted':False, 'reason':'halt conditions not met (early halt {self.do_early_halt})', 'halt_code': 'none'})
         return ret
 
     # Following are the methods that use DataFiles

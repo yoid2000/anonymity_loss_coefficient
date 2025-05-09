@@ -108,7 +108,7 @@ class BrmAttack:
                     print(f"\r{counter} {self.alcm.halt_info['reason']}", end="")
         if self.no_counter is False:
             print("\r", end="")
-        self.logger.info(f'''   Finished after {self.alcm.halt_info['num_attacks']} attacks with ALC {self.alcm.halt_info['alc'] if 'alc' in self.alcm.halt_info else 'unknown'} for reason "{self.alcm.halt_info['reason']}"''')
+        self.logger.info(f'''\n   Finished after {self.alcm.halt_info['num_attacks']} attacks with ALC {self.alcm.halt_info['alc'] if 'alc' in self.alcm.halt_info else 'unknown'} for reason "{self.alcm.halt_info['reason']}"''')
 
 
         self.alcm.summarize_results(with_plot=True)
