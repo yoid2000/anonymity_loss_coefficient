@@ -104,7 +104,6 @@ class ALCManager:
         when enough predictions have been made to produce a good ALC score.
         """
         self.start_time = time.time()
-        end_time = None
         self.num_prc_measures = self.halt_min_significant_attack_prcs
         # First check if we have already run this attack.
         if self.rep.already_attacked(secret_column, known_columns):
@@ -175,8 +174,8 @@ class ALCManager:
                     self.halt_info = self._ok_to_halt(si_halt)
                 self.halt_info.update({'num_attacks': num_attacks})
                 self.logger.debug(pp.pformat(self.halt_info))
-                endtime = time.time()
-                elapsed_time = round(endtime - self.start_time, 4)
+                end_time = time.time()
+                elapsed_time = round(end_time - self.start_time, 4)
                 self.halt_info.update({'elapsed_time': elapsed_time})
                 if self.halt_info['halted'] is True:
                     self.attack_in_progress = False
@@ -184,8 +183,8 @@ class ALCManager:
                     return
             is_assigned = self._next_cntl_and_build_model()
             if is_assigned is False:
-                endtime = time.time()
-                elapsed_time = round(endtime - self.start_time, 4)
+                end_time = time.time()
+                elapsed_time = round(end_time - self.start_time, 4)
                 self.halt_info = {'halted': True, 'reason': 'exhausted all rows',  'num_attacks': num_attacks, 'halt_code': 'exhausted', 'elapsed_time': elapsed_time}
                 self.attack_in_progress = False
                 self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'])
@@ -331,10 +330,31 @@ class ALCManager:
             attack_prcs.append(score['attack_prc'])
         return attack_prcs
 
+    def _check_for_early_halt(self, alc_scores: List[Dict[str, Any]]) -> str:
+        early_halt_high = 0
+        early_halt_low = 0
+        for score in alc_scores:
+            if score['alc_high'] < self.halt_thresh_low:
+                early_halt_low += 1
+            elif score['alc_low'] > self.halt_thresh_high:
+                early_halt_high += 1
+            else:
+                return 'none'
+        if early_halt_high == len(alc_scores):
+            return 'high'
+        elif early_halt_low == len(alc_scores):
+            return 'low'
+        return 'none'
+
     def _ok_to_halt(self, si_halt: ScoreInterval) -> Dict[str, Any]:
-        if len(si_halt.df_base) < 10 or len(si_halt.df_attack) < 10:
+        if len(si_halt.df_base) < 50 or len(si_halt.df_attack) < 50:
             return {'halted': False, 'reason': f'not enough samples {len(si_halt.df_base)} base, {len(si_halt.df_attack)} attack', 'halt_code': 'none'}
         alc_scores = si_halt.get_alc_scores(self.num_prc_measures)
+        early_halt = self._check_for_early_halt(alc_scores)
+        if early_halt == 'high':
+            return {'halted': True, 'reason': 'alc extremely high', 'halt_code': 'extreme_high'}
+        elif early_halt == 'low':
+            return {'halted': True, 'reason': 'alc extremely low', 'halt_code': 'extreme_low'}
         # put the values of alc_scores['paired'] into a list called paired
         if len(alc_scores) == 0:
             return {'halted': False, 'reason':f'no alc scores with attack and base score intervals < {self.max_score_interval}', 'halt_code': 'none'}

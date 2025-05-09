@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
-from typing import Any, Tuple, Dict
+from typing import Any, Tuple, Dict, List, Union
+
+# Yes, that's right, we are banking on the real data not having these values  :(
+num_filler = -123456789
+str_filler = "no__match_xyz"
 
 def find_best_matches(df_candidates: pd.DataFrame,
                       df_query: pd.DataFrame,
@@ -44,6 +48,7 @@ def find_best_matches(df_candidates: pd.DataFrame,
 
     # Precompute min and max for continuous columns
     if continuous_cols:
+        # We given NULL values the mean so that they kindof average out when computing the distance
         col_min = df_candidates[continuous_cols].min()
         col_max = df_candidates[continuous_cols].max()
 
@@ -95,7 +100,6 @@ def find_best_matches(df_candidates: pd.DataFrame,
     idx = df_candidates.index[distances == min_distance]
 
     return pd.Index(idx), round(float(min_distance), 3)
-
 
 def modal_fraction(df_candidates: pd.DataFrame, idx: pd.Index, column: str) -> Tuple[Any, int]:
     """
@@ -224,3 +228,56 @@ if __name__ == "__main__":
         print("Test 5 Passed: Best match confidence is correct.")
     else:
         print("Test 5 Failed: Expected", expected_confidence, "but got", confidence)
+
+def create_full_anon(anon: Union[pd.DataFrame, List[pd.DataFrame]],
+                     column_classifications: Dict[str, str],
+                    ) -> pd.DataFrame:
+    """
+    Processes `anon` to create a single DataFrame `df_anon_full` with columns defined by `original_columns`.
+    Missing columns in the DataFrames are filled with NULL values.
+
+    Args:
+        anon: A DataFrame or a list of DataFrames.
+        original_columns: A list of column names to ensure in the final DataFrame.
+
+    Returns:
+        pd.DataFrame: The concatenated DataFrame with all `original_columns`.
+    """
+    all_anon_columns = set()
+    for df in anon:
+        all_anon_columns.update(df.columns.tolist())
+
+    if isinstance(anon, pd.DataFrame):
+        # If `anon` is a single DataFrame, ensure it has all `original_columns`
+        df_anon_full = anon.reindex(columns=list(all_anon_columns))
+    elif isinstance(anon, list):
+        # If `anon` is a list of DataFrames, reindex each and concatenate
+        df_anon_full = pd.concat(
+            [df.reindex(columns=list(all_anon_columns)) for df in anon],
+            ignore_index=True
+        )
+    else:
+        raise ValueError("`anon` must be a DataFrame or a list of DataFrames.")
+    
+    for column, column_class in column_classifications.items():
+        if column not in df_anon_full.columns:
+            continue
+        if column_class == "categorical":
+            if pd.api.types.is_numeric_dtype(df_anon_full[column]):
+                # Fill NaN with -1 for numeric columns
+                df_anon_full[column] = df_anon_full[column].fillna(num_filler)
+            else:
+                # Handle other dtypes (e.g., categorical, datetime) if needed
+                df_anon_full[column] = df_anon_full[column].fillna(str_filler)  # Default to "missing" for non-numeric types
+        elif column_class == "continuous":
+            # Fill in the NaN values with the mean of the column
+            df_anon_full[column] = df_anon_full[column].fillna(df_anon_full[column].mean())
+    
+    return df_anon_full
+
+def remove_rows_with_filled_values(df: pd.DataFrame, column: str) -> pd.DataFrame:
+    if pd.api.types.is_numeric_dtype(df[column]):
+        df = df[df[column] != num_filler]
+    else:
+        df = df[df[column] != str_filler]
+    return df.reset_index(drop=True)

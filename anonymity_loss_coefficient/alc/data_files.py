@@ -51,19 +51,36 @@ class DataFiles:
         ]
         self.new_discretized_columns = [f"{col}__discretized" for col in self.columns_for_discretization]
 
-        # Determine the min and max values for each column to discretize from all DataFrames
-        combined_min_max = pd.concat([self.orig_all] + self.anon)
+        # Initialize the dictionary to store discretizers
         discretizers = {}
+
+        # Iterate over columns for discretization
         for col in self.columns_for_discretization:
-            min_val = combined_min_max[col].min()
-            max_val = combined_min_max[col].max()
-            bin_edges = np.linspace(min_val, max_val, num=self.disc_bins+1)
+            # Find the min and max values across all DataFrames
+            min_val = min(df[col].min() for df in [self.orig_all] + self.anon if col in df)
+            max_val = max(df[col].max() for df in [self.orig_all] + self.anon if col in df)
+
+            # Handle cases where min_val or max_val is NaN
+            if pd.isna(min_val) or pd.isna(max_val):
+                raise ValueError(f"Column {col} contains only NaN values across all DataFrames.")
+
+            # Handle cases where min_val == max_val
+            if min_val == max_val:
+                bin_edges = np.linspace(min_val - 1, max_val + 1, num=self.disc_bins + 1)
+            else:
+                bin_edges = np.linspace(min_val, max_val, num=self.disc_bins + 1)
+
+            # Create and fit the discretizer
             discretizer = KBinsDiscretizer(n_bins=self.disc_bins, encode='ordinal', strategy='uniform')
-            # Fit the discretizer with the combined DataFrame to include feature names
-            discretizer.fit(combined_min_max[[col]])
+            combined_col_data = pd.concat([df[[col]] for df in [self.orig_all] + self.anon if col in df])
+            discretizer.fit(combined_col_data)
+
             # Manually set the bin edges
             discretizer.bin_edges_ = np.array([bin_edges])
+
+            # Store the discretizer
             discretizers[col] = discretizer
+
 
         # Discretize the columns in df_orig_all and anon using the same bin widths
         self._discretize_df(self.orig_all, discretizers)
@@ -75,7 +92,7 @@ class DataFiles:
         columns_to_encode = self.orig_all.select_dtypes(exclude=[np.int64, np.int32]).columns
         if self.discretize_in_place is False:
             columns_to_encode = [col for col in columns_to_encode if col not in self.columns_for_discretization]
-        self._encoders = self.fit_encoders(columns_to_encode, [self.orig_all] + self.anon)
+        self._encoders = self._fit_encoders(columns_to_encode, [self.orig_all] + self.anon)
 
         self._transform_df(self.orig_all)
         for i, df in enumerate(self.anon):
@@ -142,7 +159,7 @@ class DataFiles:
 
     def _discretize_df(self, df: pd.DataFrame, discretizers: Dict[str, KBinsDiscretizer]) -> None:
         for col in self.columns_for_discretization:
-            if col in discretizers:
+            if col in df.columns and col in discretizers:
                 discretizer = discretizers[col]
                 bin_indices = discretizer.transform(df[[col]]).astype(int).flatten()
                 if self.discretize_in_place:
@@ -154,6 +171,8 @@ class DataFiles:
 
     def _transform_df(self, df: pd.DataFrame) -> None:
         for col, encoder in self._encoders.items():
+            if col not in df.columns:
+                continue
             # Transform the column using the encoder and keep it as integers
             transformed_values = encoder.transform(df[col]).astype(int)
             df.loc[:, col] = transformed_values
@@ -171,12 +190,15 @@ class DataFiles:
         # Return the first element if only one value was decoded
         return original_value[0] if len(original_value) == 1 else original_value
 
-    def fit_encoders(self, columns_to_encode: List[str], dfs: List[pd.DataFrame]) -> Dict[str, LabelEncoder]:
+
+    def _fit_encoders(self, columns_to_encode: List[str], dfs: List[pd.DataFrame]) -> Dict[str, LabelEncoder]:
         encoders = {col: LabelEncoder() for col in columns_to_encode}
 
         for col in columns_to_encode:
-            # Concatenate the values from all DataFrames for this column
-            values = pd.concat(df[col] for df in dfs).unique()
+            # Collect values from all DataFrames that contain the column
+            values = pd.concat(
+                [df[col] for df in dfs if col in df.columns]
+            ).unique()
             # Fit the encoder on the unique values
             encoders[col].fit(values)
 
