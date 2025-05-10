@@ -179,9 +179,9 @@ cb()
 print(df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
 cb()
 
-print("\nAs it so happens, there is no correlation between 't1' and 'i2' or 'f1'. As a result, the baseline precision is always quite low. By contrast, because our anonymity is weak, attack precision is high uniformly high. The fact that attack precision is greater than baseline precision leads to high ALC scores, showing that anonymity is indeed weak.")
+print("\nAs it so happens, there is no correlation between 't1' and 'i2' or 'f1'. As a result, the baseline precision is always quite low. By contrast, because our anonymity is weak, attack precision is uniformly high. The fact that attack precision is greater than baseline precision leads to high ALC scores, showing that anonymity is indeed weak.")
 
-print("\nThe `paired` column indicates whether the ALC score is generated from a pair of closely-matched recall values for attack and baseline. If `False`, then the ALC score is generated from the best attack Privacy-Recall Coefficient (PRC) and the best baseline PRC regardless of recall. This represents the most appropriate ALC score (though in general not the highest ALC score).")
+print("\nThe `paired` column indicates whether the ALC score is generated from a pair of closely-matched recall values for attack and baseline. If `False`, then the ALC score is generated from the best attack Privacy-Recall Coefficient (PRC) and the best baseline PRC regardless of recall. This represents the most appropriate ALC score (though not necessarily the highest ALC score).")
 
 print("\nLet's run a second attack, here assuming that the attacker knows the value of column 'i1' and wants to predict the value of column 't1'.")
 known_columns = ['i1']
