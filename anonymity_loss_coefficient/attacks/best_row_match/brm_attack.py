@@ -5,8 +5,7 @@ from typing import List, Union, Any, Tuple
 from itertools import combinations
 import logging
 from anonymity_loss_coefficient.alc.alc_manager import ALCManager
-from .matching_routines import find_best_matches, modal_fraction, best_match_confidence, create_full_anon, remove_rows_with_filled_values
-from anonymity_loss_coefficient.utils import get_good_known_column_sets, setup_logging
+from anonymity_loss_coefficient.utils import get_good_known_column_sets, setup_logging, find_best_matches, modal_fraction, best_match_confidence, create_full_anon, remove_rows_with_filled_values
 import pprint
 
 pp = pprint.PrettyPrinter(indent=4)
@@ -23,10 +22,10 @@ class BrmAttack:
                  verbose: bool = False,
                  no_counter: bool = True,
                  flush: bool = False,
-                 use_anon_for_baseline: bool = False,
+                 prior_experiment_swap_fraction: float = -1.0,
                  ) -> None:
         # up to work with ML modeling
-        self.use_anon_for_baseline = use_anon_for_baseline
+        self.prior_experiment_swap_fraction = prior_experiment_swap_fraction
         self.flush = flush
         self.results_path = results_path
         self.max_known_col_sets = max_known_col_sets
@@ -46,7 +45,7 @@ class BrmAttack:
                                results_path = self.results_path,
                                attack_name = self.attack_name,
                                logger=self.logger,
-                               use_anon_for_baseline=self.use_anon_for_baseline,
+                               prior_experiment_swap_fraction=self.prior_experiment_swap_fraction,
                                flush=self.flush)
         # The known columns are the pre-discretized continuous columns and categorical
         # columns (i.e. all original columns). The secret columns are the discretized

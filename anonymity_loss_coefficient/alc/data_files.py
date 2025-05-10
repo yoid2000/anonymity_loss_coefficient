@@ -27,12 +27,13 @@ class DataFiles:
         # self.orig is the original data minus self.cntl
         self.orig = None
         self.cntl = None
+        # self.orig_all is the original data. self.cntl and self.orig are taken from this.
+        self.orig_all = df_original
+        self.original_columns = df_original.columns.tolist()
         self.cntl_block_index = -1
         self.columns_for_discretization = []
         self._encoders = {}
         self.column_classification = {}
-        self.orig_all = df_original
-        self.original_columns = df_original.columns.tolist()
 
         if isinstance(anon, pd.DataFrame):
             self.anon = [anon]

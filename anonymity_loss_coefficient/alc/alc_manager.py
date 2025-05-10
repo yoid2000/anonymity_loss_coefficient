@@ -36,7 +36,7 @@ class ALCManager:
                        halt_min_significant_attack_prcs = defaults['halt_min_significant_attack_prcs'],
                        halt_min_prc_improvement = defaults['halt_min_prc_improvement'],
                        halt_check_count = defaults['halt_check_count'],
-                       use_anon_for_baseline: bool = False,
+                       prior_experiment_swap_fraction: float = -1.0,
                        random_state: Optional[int] = None
                        ) -> None:
         self.df = DataFiles(
@@ -47,7 +47,7 @@ class ALCManager:
                  discretize_in_place=discretize_in_place,
                  random_state=random_state,
         )
-        self.use_anon_for_baseline = use_anon_for_baseline     # experimental purposes
+        self.prior_experiment_swap_fraction = prior_experiment_swap_fraction     # experimental purposes
         self.logger = logger
         if self.logger is None:
             logger_path = os.path.join(results_path, 'alc_manager.log')
@@ -221,17 +221,22 @@ class ALCManager:
                      si_halt: Optional[ScoreInterval]) -> None:
         # get the prediction for the row
         df_row = row[known_columns]  # This is already a DataFrame
+        encoded_predicted_value_model, proba = self.predict(df_row)
         # We save the model prediction in case the caller makes an abstention
-        self.encoded_predicted_value_model, proba = self.predict(df_row)
+        self.encoded_predicted_value_model = encoded_predicted_value_model
         encoded_true_value = row[secret_column].iloc[0]
-        decoded_predicted_value_model = self.decode_value(secret_column, self.encoded_predicted_value_model)
         decoded_true_value = self.decode_value(secret_column, encoded_true_value)
+        if self.prior_experiment_swap_fraction > 0:
+            # Purely for experimentation and should not be used otherwise
+            encoded_predicted_value_model, _ = _best_row_attack(row, self.df.orig, secret_column, known_columns, self.get_column_classification_dict())
+            proba = 1.0
+        decoded_predicted_value_model = self.decode_value(secret_column, encoded_predicted_value_model)
         self._add_result(predict_type='base',
                          known_columns=known_columns,
                          secret_column=secret_column,
                          decoded_predicted_value=decoded_predicted_value_model,
                          decoded_true_value=decoded_true_value,
-                         encoded_predicted_value=self.encoded_predicted_value_model,
+                         encoded_predicted_value=encoded_predicted_value_model,
                          encoded_true_value=encoded_true_value,
                          base_confidence=proba,
                          si_halt=si_halt)
@@ -442,20 +447,23 @@ class ALCManager:
         if is_assigned is False:
             raise ValueError("Error: Control block initialization failed")
         df = self.df.orig
-        if self.use_anon_for_baseline:
-            # This is purely for experimentation and should not be used otherwise
-            df = self.df.anon[0]
         self.base_pred.build_model(df, known_columns, secret_column, self.random_state)
+        if self.prior_experiment_swap_fraction > 0:
+            # This is purely for experimentation and should not be used otherwise
+            # self.df.orig contains the sampled original data used for baseline
+            # self.df.cntl contains the samples original data used for attack
+            # So we want to anonymize self.df.orig but leave it in self.df.orig
+            self.df.orig = _swap_anonymize(self.df.orig, self.prior_experiment_swap_fraction)
 
     def _next_cntl_and_build_model(self) -> bool:
         is_assigned = self.df.assign_next_cntl_block()
         if is_assigned is False:
             return False
         df = self.df.orig
-        if self.use_anon_for_baseline:
-            # This is purely for experimentation and should not be used otherwise
-            df = self.df.anon[0]
         self.base_pred.build_model(df)
+        if self.prior_experiment_swap_fraction > 0:
+            # This is purely for experimentation and should not be used otherwise
+            self.df.orig = _swap_anonymize(self.df.orig, self.prior_experiment_swap_fraction)
         return True
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
@@ -477,3 +485,55 @@ class ALCManager:
             self.logger.warning("Warning: Attack is still in progress. Cannot get results.")
             return None
         return self.rep.alc_per_secret_and_known_df(known_columns, secret_column)
+            
+
+# Everything after this gets removed after experimentation completed
+def _swap_anonymize(df: pd.DataFrame, swap_fraction: float) -> pd.DataFrame:
+    # Precompute column indices for faster access
+    column_indices = {column: df.columns.get_loc(column) for column in df.columns}
+
+    # Swap values in each column
+    for column, column_index in column_indices.items():
+        print(f"    Swapping column: {column} at {swap_fraction} fraction")
+        df = _swap_random_values(df, column_index, swap_fraction)
+    return df
+
+def _swap_random_values(df: pd.DataFrame, column_index: int, swap_fraction: float) -> pd.DataFrame:
+    """
+    Randomly swaps values in a column for a given fraction of rows.
+    """
+    num_rows = len(df)
+    num_swaps = int(num_rows * swap_fraction)
+    if num_swaps < 1:
+        return df  # Skip if there are too few rows to swap
+
+    # Select random pairs of indices to swap
+    indices = np.random.choice(num_rows, num_swaps * 2, replace=False)
+    for i in range(0, len(indices), 2):
+        idx1, idx2 = indices[i], indices[i + 1]
+        df.iloc[idx1, column_index], df.iloc[idx2, column_index] = (
+            df.iloc[idx2, column_index],
+            df.iloc[idx1, column_index],
+        )
+    return df
+
+def _best_row_attack(row: pd.DataFrame,
+                     filtered_candidates: pd.DataFrame,
+                     secret_column: str,
+                     known_columns: List[str],
+                     column_classifications: Dict[str, str],) -> Tuple[Any, float]:
+    from anonymity_loss_coefficient.utils import find_best_matches, modal_fraction, best_match_confidence
+    idx, min_gower_distance = find_best_matches(df_query=row,
+                                                df_candidates=filtered_candidates,
+                                                column_classifications=column_classifications,
+                                                columns=known_columns,
+                                                debug_on=False)
+    number_of_min_gower_distance_matches = len(idx)
+    pred_value, modal_count = modal_fraction(df_candidates=filtered_candidates,
+                                                idx=idx, column=secret_column)
+    modal_frac = modal_count / number_of_min_gower_distance_matches
+    confidence = best_match_confidence(
+                                    gower_distance=min_gower_distance,
+                                    modal_fraction=modal_frac,
+                                    match_count=number_of_min_gower_distance_matches)
+    return pred_value, confidence
