@@ -61,6 +61,7 @@ def launch_attack(data: str,
         elif file.endswith('.parquet'):
             syn_dfs.append(pd.read_parquet(os.path.join(synthetic_path, file)))
     results_path = os.path.join(data, 'results')
+    os.makedirs(results_path, exist_ok=True)
     brm = BrmAttack(df_original=df_original,
                     anon=syn_dfs,
                     results_path=results_path,
