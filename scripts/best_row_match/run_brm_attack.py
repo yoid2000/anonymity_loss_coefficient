@@ -3,6 +3,7 @@ import sys
 import argparse
 import pandas as pd
 from typing import List
+from charset_normalizer import from_path
 from anonymity_loss_coefficient.attacks import BrmAttack
 
 def launch_attack(data: str,
@@ -40,10 +41,12 @@ def launch_attack(data: str,
     elif len(csv_files) == 1:
         # use the csv file if there is no parquet file
         original_data_path = os.path.join(inputs_path, csv_files[0])
+        result = from_path(original_data_path).best()
+        encoding = result.encoding
         try:
-            df_original = pd.read_csv(original_data_path)
+            df_original = pd.read_csv(original_data_path, encoding=encoding)
         except Exception as e:
-            print(f"Error reading {original_data_path}")
+            print(f"Error reading {original_data_path} with encoding {encoding}")
             print(f"Error: {e}")
             sys.exit(1)
     else:
@@ -57,7 +60,15 @@ def launch_attack(data: str,
     syn_dfs = []
     for file in os.listdir(synthetic_path):
         if file.endswith('.csv'):
-            syn_dfs.append(pd.read_csv(os.path.join(synthetic_path, file)))
+            csv_path = os.path.join(synthetic_path, file)
+            result = from_path(csv_path).best()
+            encoding = result.encoding
+            try:
+                syn_dfs.append(pd.read_csv(csv_path, encoding=encoding))
+            except Exception as e:
+                print(f"Error reading {original_data_path} with encoding {encoding}")
+                print(f"Error: {e}")
+                sys.exit(1)
         elif file.endswith('.parquet'):
             syn_dfs.append(pd.read_parquet(os.path.join(synthetic_path, file)))
     results_path = os.path.join(data, 'results')
