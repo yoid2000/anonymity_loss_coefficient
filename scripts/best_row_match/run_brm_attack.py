@@ -1,10 +1,9 @@
 import os
 import sys
 import argparse
-import pandas as pd
 from typing import List
-from charset_normalizer import from_path
 from anonymity_loss_coefficient.attacks import BrmAttack
+from anonymity_loss_coefficient.utils.io_utils import read_table
 
 def launch_attack(data: str,
                   name: str,
@@ -31,27 +30,13 @@ def launch_attack(data: str,
     if len(parquet_files) == 1:
         # preferentially use the parquet file
         original_data_path = os.path.join(inputs_path, parquet_files[0])
-        # read the parquet file as a pandas dataframe
-        try:
-            df_original = pd.read_parquet(original_data_path)
-        except Exception as e:
-            print(f"Error reading {original_data_path}")
-            print(f"Error: {e}")
-            sys.exit(1)
     elif len(csv_files) == 1:
         # use the csv file if there is no parquet file
         original_data_path = os.path.join(inputs_path, csv_files[0])
-        result = from_path(original_data_path).best()
-        encoding = result.encoding
-        try:
-            df_original = pd.read_csv(original_data_path, encoding=encoding)
-        except Exception as e:
-            print(f"Error reading {original_data_path} with encoding {encoding}")
-            print(f"Error: {e}")
-            sys.exit(1)
     else:
         print(f"Error: There must be either exactly one original data file in {inputs_path} with a .parquet or .csv extension")
         sys.exit(1)
+    df_original = read_table(original_data_path)
 
     synthetic_path = os.path.join(inputs_path, 'synthetic_files')
     if not os.path.exists(synthetic_path) or not os.path.isdir(synthetic_path):
@@ -59,19 +44,13 @@ def launch_attack(data: str,
         sys.exit(1)
     syn_dfs = []
     for file in os.listdir(synthetic_path):
-        if file.endswith('.csv'):
-            csv_path = os.path.join(synthetic_path, file)
-            result = from_path(csv_path).best()
-            encoding = result.encoding
-            try:
-                syn_dfs.append(pd.read_csv(csv_path, encoding=encoding))
-            except Exception as e:
-                print(f"Error reading {original_data_path} with encoding {encoding}")
-                print(f"Error: {e}")
-                sys.exit(1)
-        elif file.endswith('.parquet'):
-            syn_dfs.append(pd.read_parquet(os.path.join(synthetic_path, file)))
+        if file.endswith('.csv') or file.endswith('.parquet'):
+            file_path = os.path.join(synthetic_path, file)
+            syn_dfs.append(read_table(file_path))
     results_path = os.path.join(data, 'results')
+    if len(syn_dfs) == 0:
+        print(f"Error: No csv or parquet files found in {synthetic_path}")
+        sys.exit(1)
     os.makedirs(results_path, exist_ok=True)
     brm = BrmAttack(df_original=df_original,
                     anon=syn_dfs,

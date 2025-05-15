@@ -8,6 +8,7 @@ from typing import List, Optional, Dict
 matplotlib.use('Agg')  # This needed because of tkinter issues
 import matplotlib.pyplot as plt
 from .defaults import defaults
+from anonymity_loss_coefficient.utils import read_table
 
 class Reporter():
     def __init__(self,
@@ -46,7 +47,7 @@ class Reporter():
             return
         if os.path.exists(summary_raw_path):
             try:
-                df = pd.read_parquet(summary_raw_path)
+                df = read_table(summary_raw_path)
                 self.logger.info(f"Reading {summary_raw_path}. Found {len(df)} rows.")
                 self.list_results_done = df.to_dict(orient='records')
             except Exception as e:
@@ -56,7 +57,7 @@ class Reporter():
 
         if os.path.exists(summary_secret_known_path):
             try:
-                df = pd.read_csv(summary_secret_known_path)
+                df = read_table(summary_secret_known_path)
                 self.logger.info(f"Reading {summary_secret_known_path}. Found {len(df)} rows.")
                 self.list_secret_known_results_done = df.to_dict(orient='records')
                 # Get every distinct combination of secret_column and known_columns

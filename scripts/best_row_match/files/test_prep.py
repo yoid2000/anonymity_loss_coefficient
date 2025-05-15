@@ -3,7 +3,6 @@ import pandas as pd
 from syndiffix import Synthesizer
 from syndiffix.common import AnonymizationParams
 
-# read tx2019.csv
 df_original = pd.read_csv('tx2019.csv')
 
 input_path = os.path.join('attack_files_anon', 'inputs')
