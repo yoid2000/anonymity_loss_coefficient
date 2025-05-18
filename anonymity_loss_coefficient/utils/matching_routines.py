@@ -140,7 +140,6 @@ def best_match_confidence(gower_distance: float, modal_fraction: float, match_co
     if not (0 <= modal_fraction <= 1):
         raise ValueError("Error: modal_fraction must be between 0 and 1.")
     return round((1 - gower_distance) * modal_fraction, 3)
-    #return round((1 - gower_distance) * modal_fraction * (1/match_count), 3)
 
 if __name__ == "__main__":
     import pandas as pd
