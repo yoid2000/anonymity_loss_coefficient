@@ -40,12 +40,12 @@ def find_best_matches(
         # Prepare column_classifications for only the columns present
         filtered_column_classifications = {col: column_classifications[col] for col in matching_columns if col in column_classifications}
 
-        # Subset dataframes to matching columns
-        df_candidates_sub = df_candidates[matching_columns]
+        #df_candidates_sub = df_candidates.loc[:, matching_columns]
+        # We need to subset the df_query because this is the basis for determining known columns
         df_query_sub = df_query[matching_columns]
 
         idx, gower_distance = _find_best_matches_one(
-            df_candidates_sub,
+            df_candidates,
             df_query_sub,
             filtered_column_classifications,
             min_max
