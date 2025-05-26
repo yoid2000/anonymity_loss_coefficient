@@ -176,8 +176,8 @@ class DataFiles:
                 continue
             # Transform the column using the encoder and keep it as integers
             transformed_values = encoder.transform(df[col].astype(str))
-            # If the column is not integer, cast it to int before assignment to avoid FutureWarning
-            if not pd.api.types.is_integer_dtype(df[col]):
+            # cast to int if the column is bool or datetime
+            if pd.api.types.is_bool_dtype(df[col]) or pd.api.types.is_datetime64_any_dtype(df[col]):
                 df[col] = df[col].astype(int)
             df.loc[:, col] = transformed_values.astype(int)
 

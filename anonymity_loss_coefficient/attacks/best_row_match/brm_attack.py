@@ -145,6 +145,8 @@ class BrmAttack:
                                                     column_classifications=self.alcm.get_column_classification_dict(),
                                                     )
         number_of_min_gower_distance_matches = len(secret_values)
+        if number_of_min_gower_distance_matches == 0:
+            return None, 0.0
         pred_value, modal_count = modal_fraction(secret_values)
         modal_frac = modal_count / number_of_min_gower_distance_matches
         confidence = best_match_confidence(
