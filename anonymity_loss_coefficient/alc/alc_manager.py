@@ -392,7 +392,7 @@ class ALCManager:
             # so that we've given an adequate opportunity to get all the confidence
             # values we're likely to get.
             if len(si_halt.df_base) < 200 and len(si_halt.df_attack) < 200:
-                ret.update({'halted':False, 'reason':f'not enough samples to have adequate predictions when all attack prc measures {len(sig_attack_prcs)} significant (early halt {self.do_early_halt})', 'halt_code': 'none'})
+                ret.update({'halted':False, 'reason':f'not enough samples even with attack prc measures {len(sig_attack_prcs)} significant (early halt {self.do_early_halt})', 'halt_code': 'none'})
                 return ret
 
             # Check if there are simply not very many different confidence values,

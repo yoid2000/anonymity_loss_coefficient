@@ -57,8 +57,8 @@ class BrmAttack:
         self.logger.info(self.all_known_columns)
         self.logger.info(f"There are {len(self.all_secret_columns)} potential secret columns:")
         self.logger.info(self.all_secret_columns)
-        self.logger.info("Columns in all anonymized dataframes:")
-        for df in self.alcm.df.anon:
+        self.logger.info(f"Columns in first 5 of {len(self.alcm.df.anon)} anonymized dataframes:")
+        for df in self.alcm.df.anon[:5]:
             self.logger.info(f"    {df.columns.tolist()}")
         self.logger.info("Columns are classified as:")
         self.logger.info(pp.pformat(self.alcm.get_column_classification_dict()))
