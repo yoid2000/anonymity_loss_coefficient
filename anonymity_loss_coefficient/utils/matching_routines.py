@@ -187,19 +187,15 @@ def best_match_confidence(gower_distance: float, modal_fraction: float, match_co
     return round((1 - gower_distance) * modal_fraction, 3)
 
 def _get_min_max(df_list: list, columns: list) -> dict:
-    """
-    For each column in columns, computes the min and max value across all dataframes in df_list.
-    Not all dataframes are guaranteed to have all columns.
-
-    Returns:
-        A dictionary mapping each column to a tuple: (min_value, max_value)
-    """
     min_max = {}
     for col in columns:
-        series_list = [df[col] for df in df_list if col in df.columns]
-        if series_list:
-            values = pd.concat(series_list, ignore_index=True)
-            min_max[col] = (values.min(), values.max())
-        else:
-            min_max[col] = (None, None)
+        min_val, max_val = None, None
+        for df in df_list:
+            if col in df.columns:
+                col_min = df[col].min()
+                col_max = df[col].max()
+                min_val = col_min if min_val is None else min(min_val, col_min)
+                max_val = col_max if max_val is None else max(max_val, col_max)
+        min_max[col] = (min_val, max_val)
     return min_max
+
