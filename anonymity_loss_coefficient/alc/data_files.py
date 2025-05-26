@@ -176,6 +176,9 @@ class DataFiles:
                 continue
             # Transform the column using the encoder and keep it as integers
             transformed_values = encoder.transform(df[col].astype(str))
+            # If the column is boolean, cast it to int before assignment to avoid FutureWarning
+            if pd.api.types.is_bool_dtype(df[col]):
+                df[col] = df[col].astype(int)
             df.loc[:, col] = transformed_values.astype(int)
 
 
