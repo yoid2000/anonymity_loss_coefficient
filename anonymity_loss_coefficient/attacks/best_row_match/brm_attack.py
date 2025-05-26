@@ -5,7 +5,7 @@ from typing import List, Union, Any, Tuple
 from itertools import combinations
 import logging
 from anonymity_loss_coefficient.alc.alc_manager import ALCManager
-from anonymity_loss_coefficient.utils import get_good_known_column_sets, setup_logging, find_best_matches, modal_fraction, best_match_confidence, create_full_anon, remove_rows_with_filled_values
+from anonymity_loss_coefficient.utils import get_good_known_column_sets, setup_logging, find_best_matches, modal_fraction, best_match_confidence
 import pprint
 
 pp = pprint.PrettyPrinter(indent=4)
@@ -62,12 +62,6 @@ class BrmAttack:
             self.logger.info(f"    {df.columns.tolist()}")
         self.logger.info("Columns are classified as:")
         self.logger.info(pp.pformat(self.alcm.get_column_classification_dict()))
-        # df_anon_full is a concatenation of the dataframes in anon, with defaults filled in
-        # where the dataframes do not have all of the columns in df_original. It is used to
-        # compute gower distance etc.
-        self.df_anon_full = create_full_anon(anon=self.alcm.df.anon,
-                                             column_classifications=self.alcm.get_column_classification_dict()
-                                            )
 
     def run_all_columns_attack(self, secret_columns: List[str] = None) -> None:
         '''
@@ -87,13 +81,9 @@ class BrmAttack:
             known_columns = self.all_known_columns
         self.logger.info(f"\nAttack secret column {secret_column}\n    assuming {len(known_columns)} known columns {known_columns}")
         counter = 1
-        filtered_candidates = remove_rows_with_filled_values(self.df_anon_full, secret_column)
-        if len(filtered_candidates) == 0:
-            self.logger.info(f"Filtered candidates is empty for secret column {secret_column} and known columns {known_columns}. Do nothing.")
-            return
         for atk_row, _, _ in self.alcm.predictor(known_columns, secret_column):
             # Note that atk_row contains only the known_columns
-            encoded_predicted_value, prediction_confidence = self._best_row_attack(atk_row, filtered_candidates, secret_column, known_columns)
+            encoded_predicted_value, prediction_confidence = self._best_row_attack(atk_row, secret_column)
             if encoded_predicted_value is None:
                 # Can happen if there are no candidates for the secret column
                 self.alcm.abstention()
@@ -148,17 +138,14 @@ class BrmAttack:
 
 
     def _best_row_attack(self, row: pd.DataFrame,
-                          filtered_candidates: pd.DataFrame,
-                          secret_column: str,
-                          known_columns: List[str]) -> Tuple[Any, float]:
-        idx, min_gower_distance = find_best_matches(df_query=row,
-                                                    df_candidates=filtered_candidates,
+                          secret_column: str) -> Tuple[Any, float]:
+        min_gower_distance, secret_values = find_best_matches(anon=self.alcm.df.anon,
+                                                    df_query=row,
+                                                    secret_column=secret_column,
                                                     column_classifications=self.alcm.get_column_classification_dict(),
-                                                    columns=known_columns,
-                                                    debug_on=False)
-        number_of_min_gower_distance_matches = len(idx)
-        pred_value, modal_count = modal_fraction(df_candidates=filtered_candidates,
-                                                    idx=idx, column=secret_column)
+                                                    )
+        number_of_min_gower_distance_matches = len(secret_values)
+        pred_value, modal_count = modal_fraction(secret_values)
         modal_frac = modal_count / number_of_min_gower_distance_matches
         confidence = best_match_confidence(
                                         gower_distance=min_gower_distance,
