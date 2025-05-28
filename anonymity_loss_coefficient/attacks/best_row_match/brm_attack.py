@@ -23,11 +23,13 @@ class BrmAttack:
                  no_counter: bool = True,
                  flush: bool = False,
                  prior_experiment_swap_fraction: float = -1.0,
+                 match_method: str = 'gower',
                  ) -> None:
         # up to work with ML modeling
         self.prior_experiment_swap_fraction = prior_experiment_swap_fraction
         self.flush = flush
         self.results_path = results_path
+        self.match_method = match_method
         self.max_known_col_sets = max_known_col_sets
         self.known_cols_sets_unique_threshold = known_cols_sets_unique_threshold
         self.num_per_secret_attacks = num_per_secret_attacks
@@ -143,6 +145,7 @@ class BrmAttack:
                                                     df_query=row,
                                                     secret_column=secret_column,
                                                     column_classifications=self.alcm.get_column_classification_dict(),
+                                                    match_method=self.match_method,
                                                     )
         number_of_min_gower_distance_matches = len(secret_values)
         if number_of_min_gower_distance_matches == 0:

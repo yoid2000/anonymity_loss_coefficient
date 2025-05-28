@@ -12,6 +12,7 @@ def find_best_matches(
     df_query: pd.DataFrame,
     secret_column: str,
     column_classifications: Dict[str, str],
+    match_method: str = "gower",
 ) -> Tuple[float, list[Any]]:
     """
     Finds the best matches in a list of DataFrames based on Gower distance.
@@ -48,13 +49,28 @@ def find_best_matches(
             df_candidates,
             df_query_sub,
             filtered_column_classifications,
-            min_max
+            min_max,
+            match_method=match_method,
         )
 
-        # Count mismatched columns
-        num_mismatched_columns = len([col for col in df_query.columns if col not in df_candidates.columns])
+        # We adjust the gower (or mod_gower) distance to account for the columns that are not in df_query
+        # For now, the penalty is always an assumption of 0.5 for each column not in df_query, but
+        # the code below is set up so that we can tweak this in the future.
+        all_categorical_cols = [col for col in df_query.columns if column_classifications.get(col) == "categorical"]
+        all_continuous_cols = [col for col in df_query.columns if column_classifications.get(col) == "continuous"]
+        mismatched_columns = [col for col in df_query.columns if col not in matching_columns]
+        mismatched_cat_columns = [col for col in mismatched_columns if col in all_categorical_cols]
+        mismatched_con_columns = [col for col in mismatched_columns if col in all_continuous_cols]
+        mismatched_con_weight = len(mismatched_con_columns) * 0.5
+        mismatched_cat_weight = len(mismatched_cat_columns) * 0.5
+        if match_method == "gower":
+            mismatched_con_weight = len(mismatched_con_columns) * 0.5
+            mismatched_cat_weight = len(mismatched_cat_columns) * 0.5
+        total_mismatched_weight = mismatched_con_weight + mismatched_cat_weight
+        num_matched_columns = len(matching_columns)
+        print(f"categorical columns: {all_categorical_cols}\ncontinuous columns: {all_continuous_cols}\nmismatched columns: {mismatched_columns}\nmismatched categorical columns: {mismatched_cat_columns}\nmismatched continuous columns: {mismatched_con_columns}\nnum_matched_columns: {num_matched_columns}\ntotal_mismatched_weight: {total_mismatched_weight}")
         # Treat each of the columns not in df_query as gower distance of 1
-        adjusted_gower_distance = (gower_distance + num_mismatched_columns) / len(df_query.columns)
+        adjusted_gower_distance = ((gower_distance * num_matched_columns) + total_mismatched_weight) / len(df_query.columns)
 
         # Get the secret values for the best matches
         secret_values = df_candidates.loc[idx, secret_column].tolist()
@@ -81,7 +97,7 @@ def _find_best_matches_one(df_candidates: pd.DataFrame,
                       df_query: pd.DataFrame,
                       column_classifications: Dict[str, str],
                       min_max: Dict[str, Tuple[float, float]],
-                      method: str = "gower",
+                      match_method: str = "gower",
                       ) -> Tuple[pd.Index, float]:
     """
     Compute Gower distance
@@ -130,24 +146,57 @@ def _find_best_matches_one(df_candidates: pd.DataFrame,
         normalized_query = normalized_query.clip(0, 1)
 
         # Compute absolute differences for continuous columns
-        continuous_distances = np.abs(normalized_candidates - normalized_query)
-        continuous_distances_sum = continuous_distances.sum(axis=1)
+        continuous_distances = pd.DataFrame(np.abs(normalized_candidates - normalized_query))
     else:
         continuous_distances = pd.DataFrame(np.zeros((len(df_candidates), 0)), index=df_candidates.index)
-        continuous_distances_sum = np.zeros(len(df_candidates))
 
-    if method == "gower":
-        return _gower_distance(df_candidates, query_row, continuous_cols, categorical_cols,
-                               continuous_distances_sum)
-    elif method == "match_power":
-        pass
-    
+    if match_method == "gower":
+        return _gower_distance(df_candidates, query_row, continuous_cols, categorical_cols, continuous_distances)
+    elif match_method == "mod_gower":
+        return _mod_gower_distance(df_candidates, query_row, continuous_cols, categorical_cols, continuous_distances)
+
+def _mod_gower_distance(df_candidates: pd.DataFrame,
+                 query_row: pd.Series,
+                 continuous_cols: list[str],
+                 categorical_cols: list[str],
+                 continuous_distances: pd.DataFrame,
+                ) -> Tuple[pd.Index, float]:
+    # Continuous distances: same as Gower
+    continuous_distances_sum = continuous_distances.sum(axis=1)
+
+    # Categorical distances: sensitive to the frequency of the value in the query
+    if categorical_cols:
+        categorical_distances = pd.DataFrame(index=df_candidates.index, columns=categorical_cols, dtype=float)
+        for col in categorical_cols:
+            query_val = query_row[col]
+            freq = (df_candidates[col] == query_val).sum()
+            n = len(df_candidates)
+            match_dist = freq / (2 * n) if n > 0 else 0.0
+            mismatch_dist = 1 - ((n - freq) / (2 * n)) if n > 0 else 1.0
+            categorical_distances[col] = np.where(
+                df_candidates[col] == query_val,
+                match_dist,
+                mismatch_dist
+            )
+        categorical_distances_sum = categorical_distances.sum(axis=1)
+    else:
+        categorical_distances_sum = pd.Series(0, index=df_candidates.index)
+
+    total_features = len(continuous_cols) + len(categorical_cols)
+    distances = (continuous_distances_sum + categorical_distances_sum) / total_features
+
+    min_distance = distances.min()
+    idx = df_candidates.index[distances == min_distance]
+    return pd.Index(idx), round(float(min_distance), 3)
+
 def _gower_distance(df_candidates: pd.DataFrame,
                     query_row: pd.Series,
                     continuous_cols: list[str],
                     categorical_cols: list[str],
-                    continuous_distances_sum: np.ndarray,
+                    continuous_distances: pd.DataFrame,
                    ) -> Tuple[pd.Index, float]:
+        continuous_distances_sum = continuous_distances.sum(axis=1)
+
         # Compute binary distances for categorical columns
         if categorical_cols:
             categorical_distances = (df_candidates[categorical_cols] != query_row[categorical_cols]).astype(int)

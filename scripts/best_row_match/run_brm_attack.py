@@ -13,6 +13,7 @@ def launch_attack(data: str,
                   verbose: bool = False,
                   no_counter: bool = False,
                   flush: bool = False,
+                  match_method: str = 'gower',
                   ) -> None:
     if not os.path.isdir(data):
         print(f"Error: {data} is not a directory")
@@ -59,6 +60,7 @@ def launch_attack(data: str,
                     verbose = verbose,
                     no_counter = no_counter,
                     flush = flush,
+                    match_method=match_method,
                     )
     if run_once:
         brm.run_one_attack(secret_column=secret[0], known_columns=known)
@@ -80,6 +82,7 @@ def main():
     parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Logging at debug level. (Does not effect sysout.)")
     parser.add_argument("-nc", "--no_counter", action="store_true", default=False, help="Disable status counter in sysout.)")
     parser.add_argument("-f", "--flush", action="store_true", default=False, help="Flushes out any already completed attack results.")
+    parser.add_argument("-mm", "--match_method", type=str, default="gower", choices=["gower", "mod_gower"], help="The match method to use: 'gower' (default) or 'mod_gower'.")
 
     # Parse the arguments
     args = parser.parse_args()
@@ -104,6 +107,7 @@ def main():
     verbose = args.verbose
     no_counter = args.no_counter
     flush = args.flush
+    match_method = args.match_method
 
     # Print the parsed arguments
     print(f"Data: {data}")
@@ -114,8 +118,9 @@ def main():
     print(f"Verbose: {verbose}")
     print(f"No counter: {no_counter}")
     print(f"Flush: {flush}")
+    print(f"Match method: {match_method}")
 
-    launch_attack(data=data, name=name, secret=secret, known=known, run_once=run_once, verbose=verbose, no_counter=no_counter, flush=flush)
+    launch_attack(data=data, name=name, secret=secret, known=known, run_once=run_once, verbose=verbose, no_counter=no_counter, flush=flush, match_method=match_method)
 
 if __name__ == "__main__":
     main()
