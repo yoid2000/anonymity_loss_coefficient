@@ -81,6 +81,7 @@ def _find_best_matches_one(df_candidates: pd.DataFrame,
                       df_query: pd.DataFrame,
                       column_classifications: Dict[str, str],
                       min_max: Dict[str, Tuple[float, float]],
+                      method: str = "gower",
                       ) -> Tuple[pd.Index, float]:
     """
     Compute Gower distance
@@ -135,25 +136,37 @@ def _find_best_matches_one(df_candidates: pd.DataFrame,
         continuous_distances = pd.DataFrame(np.zeros((len(df_candidates), 0)), index=df_candidates.index)
         continuous_distances_sum = np.zeros(len(df_candidates))
 
-    # Compute binary distances for categorical columns
-    if categorical_cols:
-        categorical_distances = (df_candidates[categorical_cols] != query_row[categorical_cols]).astype(int)
-        categorical_distances_sum = categorical_distances.sum(axis=1)
-    else:
-        categorical_distances = pd.DataFrame(np.zeros((len(df_candidates), 0)), index=df_candidates.index)
-        categorical_distances_sum = np.zeros(len(df_candidates))
+    if method == "gower":
+        return _gower_distance(df_candidates, query_row, continuous_cols, categorical_cols,
+                               continuous_distances_sum)
+    elif method == "match_power":
+        pass
+    
+def _gower_distance(df_candidates: pd.DataFrame,
+                    query_row: pd.Series,
+                    continuous_cols: list[str],
+                    categorical_cols: list[str],
+                    continuous_distances_sum: np.ndarray,
+                   ) -> Tuple[pd.Index, float]:
+        # Compute binary distances for categorical columns
+        if categorical_cols:
+            categorical_distances = (df_candidates[categorical_cols] != query_row[categorical_cols]).astype(int)
+            categorical_distances_sum = categorical_distances.sum(axis=1)
+        else:
+            categorical_distances = pd.DataFrame(np.zeros((len(df_candidates), 0)), index=df_candidates.index)
+            categorical_distances_sum = np.zeros(len(df_candidates))
 
-    # Combine distances and normalize by the number of features
-    total_features = len(continuous_cols) + len(categorical_cols)
-    distances = (continuous_distances_sum + categorical_distances_sum) / total_features
+        # Combine distances and normalize by the number of features
+        total_features = len(continuous_cols) + len(categorical_cols)
+        distances = (continuous_distances_sum + categorical_distances_sum) / total_features
 
-    # Find the minimum Gower distance
-    min_distance = distances.min()
+        # Find the minimum Gower distance
+        min_distance = distances.min()
 
-    # Find the indices of rows in df_candidates with the minimum Gower distance
-    idx = df_candidates.index[distances == min_distance]
+        # Find the indices of rows in df_candidates with the minimum Gower distance
+        idx = df_candidates.index[distances == min_distance]
+        return pd.Index(idx), round(float(min_distance), 3)
 
-    return pd.Index(idx), round(float(min_distance), 3)
 
 def modal_fraction(values: list) -> Tuple[Any, int]:
     """
