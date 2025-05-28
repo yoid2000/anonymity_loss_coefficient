@@ -76,6 +76,7 @@ def test_basic(temp_dir, df, my_func, param1, param2, expected_alc):
     """
     Runs the basic_test for each parameterized condition.
     """
+    random.seed(42)  # <--- Add this line to fix random variation
     # Initialize ALCManager
     alcm = ALCManager(df, df.copy(), results_path=temp_dir, flush=True, random_state=42)
 

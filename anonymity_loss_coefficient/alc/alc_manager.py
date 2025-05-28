@@ -228,7 +228,7 @@ class ALCManager:
         decoded_true_value = self.decode_value(secret_column, encoded_true_value)
         if self.prior_experiment_swap_fraction > 0:
             # Purely for experimentation and should not be used otherwise
-            encoded_predicted_value_model, _ = _best_row_attack(row, self.df.orig, secret_column, known_columns, self.get_column_classification_dict())
+            encoded_predicted_value_model, _ = _best_row_attack(row, self.df.anon, secret_column, self.get_column_classification_dict())
             proba = 1.0
         decoded_predicted_value_model = self.decode_value(secret_column, encoded_predicted_value_model)
         self._add_result(predict_type='base',
@@ -392,7 +392,7 @@ class ALCManager:
             # so that we've given an adequate opportunity to get all the confidence
             # values we're likely to get.
             if len(si_halt.df_base) < 200 and len(si_halt.df_attack) < 200:
-                ret.update({'halted':False, 'reason':f'not enough samples to have adequate predictions when all attack prc measures {len(sig_attack_prcs)} significant (early halt {self.do_early_halt})', 'halt_code': 'none'})
+                ret.update({'halted':False, 'reason':f'not enough samples even with attack prc measures {len(sig_attack_prcs)} significant (early halt {self.do_early_halt})', 'halt_code': 'none'})
                 return ret
 
             # Check if there are simply not very many different confidence values,
@@ -517,20 +517,19 @@ def _swap_random_values(df: pd.DataFrame, column_index: int, swap_fraction: floa
         )
     return df
 
+
 def _best_row_attack(row: pd.DataFrame,
-                     filtered_candidates: pd.DataFrame,
+                     anon: list[pd.DataFrame],
                      secret_column: str,
-                     known_columns: List[str],
-                     column_classifications: Dict[str, str],) -> Tuple[Any, float]:
+                     column_classifications: Dict[str, str]) -> Tuple[Any, float]:
     from anonymity_loss_coefficient.utils import find_best_matches, modal_fraction, best_match_confidence
-    idx, min_gower_distance = find_best_matches(df_query=row,
-                                                df_candidates=filtered_candidates,
+    min_gower_distance, secret_values = find_best_matches(anon=anon,
+                                                df_query=row,
+                                                secret_column=secret_column,
                                                 column_classifications=column_classifications,
-                                                columns=known_columns,
-                                                debug_on=False)
-    number_of_min_gower_distance_matches = len(idx)
-    pred_value, modal_count = modal_fraction(df_candidates=filtered_candidates,
-                                                idx=idx, column=secret_column)
+                                                )
+    number_of_min_gower_distance_matches = len(secret_values)
+    pred_value, modal_count = modal_fraction(secret_values)
     modal_frac = modal_count / number_of_min_gower_distance_matches
     confidence = best_match_confidence(
                                     gower_distance=min_gower_distance,
