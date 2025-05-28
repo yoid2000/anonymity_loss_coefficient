@@ -68,7 +68,6 @@ def find_best_matches(
             mismatched_cat_weight = len(mismatched_cat_columns) * 0.5
         total_mismatched_weight = mismatched_con_weight + mismatched_cat_weight
         num_matched_columns = len(matching_columns)
-        print(f"categorical columns: {all_categorical_cols}\ncontinuous columns: {all_continuous_cols}\nmismatched columns: {mismatched_columns}\nmismatched categorical columns: {mismatched_cat_columns}\nmismatched continuous columns: {mismatched_con_columns}\nnum_matched_columns: {num_matched_columns}\ntotal_mismatched_weight: {total_mismatched_weight}")
         # Treat each of the columns not in df_query as gower distance of 1
         adjusted_gower_distance = ((gower_distance * num_matched_columns) + total_mismatched_weight) / len(df_query.columns)
 
