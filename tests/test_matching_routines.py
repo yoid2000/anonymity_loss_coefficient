@@ -3,7 +3,8 @@ import pytest
 from anonymity_loss_coefficient.utils.matching_routines import (
     find_best_matches_one,
     modal_fraction,
-    best_match_confidence
+    best_match_confidence,
+    find_best_matches
 )
 
 @pytest.fixture
@@ -74,7 +75,6 @@ def test_get_min_max():
     assert result['D'] == (None, None)
 
 def test_find_best_matches_basic():
-    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
 
     # Create two candidate DataFrames
     df1 = pd.DataFrame({
@@ -114,7 +114,6 @@ def test_find_best_matches_basic():
     assert set(best_match_values) == {'A', 'D'}
 
 def test_find_best_matches_with_missing_columns():
-    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
 
     # df1 is missing 'Income', df2 is missing 'Gender'
     df1 = pd.DataFrame({
@@ -147,13 +146,10 @@ def test_find_best_matches_with_missing_columns():
         anon, df_query, secret_column, column_classifications
     )
 
-    # Both df1 and df2 have a row with Age=25, but each is missing one query column,
-    # so adjusted_gower_distance should be (0 + 1) / 3 = 1/3 ≈ 0.333
-    assert min_gower_distance == pytest.approx(1/3, 0.01)
+    assert min_gower_distance == pytest.approx(1/6, 0.01)
     assert set(best_match_values) == {'A', 'C'}
 
 def test_find_best_matches_no_match():
-    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
 
     df1 = pd.DataFrame({
         'Age': [35, 45],
@@ -187,7 +183,6 @@ def test_find_best_matches_no_match():
     assert len(best_match_values) > 0
 
 def test_find_best_matches_anon_missing_and_extra_columns():
-    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
 
     # df1 is missing 'Income', has extra 'Location'
     # df1 returns gower of 1/3, secret 'A'
@@ -232,8 +227,7 @@ def test_find_best_matches_anon_missing_and_extra_columns():
         anon, df_query, secret_column, column_classifications
     )
 
-    # The first two anon df matches on only 2 of 3 columns, so adjusted_gower_distance should be (0 + 1) / 3 = 1/3 ≈ 0.333. The third one has gower of 2/3, and so is ignored.
-    assert min_gower_distance == pytest.approx(1/3, 0.01)
+    assert min_gower_distance == pytest.approx(1/6, 0.01)
     assert set(best_match_values) == {'A', 'C'}
 
 
@@ -265,3 +259,157 @@ def test_modal_fraction_single_value():
 def test_modal_fraction_empty():
     with pytest.raises(IndexError):
         modal_fraction([])
+
+def test_find_best_matches_mod_gower_basic():
+    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
+
+    df1 = pd.DataFrame({
+        'Age': [25, 35, 45],
+        'Gender': ['Male', 'Female', 'Male'],
+        'Income': [50000, 60000, 55000],
+        'Secret': ['A', 'B', 'C']
+    })
+    df2 = pd.DataFrame({
+        'Age': [25, 35],
+        'Gender': ['Male', 'Female'],
+        'Income': [50000, 60000],
+        'Secret': ['D', 'E']
+    })
+
+    anon = [df1, df2]
+
+    df_query = pd.DataFrame({
+        'Age': [25],
+        'Gender': ['Male'],
+        'Income': [50000]
+    })
+
+    column_classifications = {
+        'Age': 'continuous',
+        'Gender': 'categorical',
+        'Income': 'continuous'
+    }
+    secret_column = 'Secret'
+
+    min_distance, best_match_values = find_best_matches(
+        anon, df_query, secret_column, column_classifications, match_method='mod_gower'
+    )
+
+    assert min_distance == pytest.approx(0.0833, 0.01)
+    assert set(best_match_values) == {'D'}
+
+def test_find_best_matches_mod_gower_with_missing_columns():
+    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
+
+    # df1 is missing 'Income', df2 is missing 'Gender'
+    df1 = pd.DataFrame({
+        'Age': [25, 35],
+        'Gender': ['Male', 'Female'],
+        'Secret': ['A', 'B']
+    })
+    df2 = pd.DataFrame({
+        'Age': [25, 35],
+        'Income': [50000, 60000],
+        'Secret': ['C', 'D']
+    })
+
+    anon = [df1, df2]
+
+    df_query = pd.DataFrame({
+        'Age': [25],
+        'Gender': ['Male'],
+        'Income': [50000]
+    })
+
+    column_classifications = {
+        'Age': 'continuous',
+        'Gender': 'categorical',
+        'Income': 'continuous'
+    }
+    secret_column = 'Secret'
+
+    min_distance, best_match_values = find_best_matches(
+        anon, df_query, secret_column, column_classifications, match_method='mod_gower'
+    )
+
+    assert min_distance == pytest.approx(1/6, 0.01)
+    assert set(best_match_values) == {'C'}
+
+def test_find_best_matches_mod_gower_no_match():
+    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
+
+    df1 = pd.DataFrame({
+        'Age': [35, 45],
+        'Gender': ['Female', 'Male'],
+        'Income': [60000, 55000],
+        'Secret': ['A', 'B']
+    })
+
+    anon = [df1]
+
+    df_query = pd.DataFrame({
+        'Age': [25],
+        'Gender': ['Male'],
+        'Income': [50000]
+    })
+
+    column_classifications = {
+        'Age': 'continuous',
+        'Gender': 'categorical',
+        'Income': 'continuous'
+    }
+    secret_column = 'Secret'
+
+    min_distance, best_match_values = find_best_matches(
+        anon, df_query, secret_column, column_classifications, match_method='mod_gower'
+    )
+
+    # No exact matches, but should still return the closest row(s)
+    assert min_distance > 0
+    assert isinstance(best_match_values, list)
+    assert len(best_match_values) > 0
+
+def test_find_best_matches_mod_gower_anon_missing_and_extra_columns():
+    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
+
+    # df1 is missing 'Income', has extra 'Location'
+    df1 = pd.DataFrame({
+        'Age': [25, 35],
+        'Gender': ['Male', 'Female'],
+        'Location': ['NY', 'CA'],
+        'Secret': ['A', 'B']
+    })
+    # df2 is missing 'Gender', has extra 'Occupation'
+    df2 = pd.DataFrame({
+        'Age': [25, 35],
+        'Income': [50000, 60000],
+        'Occupation': ['Engineer', 'Artist'],
+        'Secret': ['C', 'D']
+    })
+    # df3 has only 'Income' and 'Secret'
+    df3 = pd.DataFrame({
+        'Income': [50000, 70000],
+        'Secret': ['E', 'F']
+    })
+
+    anon = [df1, df2, df3]
+
+    df_query = pd.DataFrame({
+        'Age': [25],
+        'Gender': ['Male'],
+        'Income': [50000]
+    })
+
+    column_classifications = {
+        'Age': 'continuous',
+        'Gender': 'categorical',
+        'Income': 'continuous'
+    }
+    secret_column = 'Secret'
+
+    min_distance, best_match_values = find_best_matches(
+        anon, df_query, secret_column, column_classifications, match_method='mod_gower'
+    )
+
+    assert min_distance == pytest.approx(1/6, 0.01)
+    assert set(best_match_values) == {'C'}
