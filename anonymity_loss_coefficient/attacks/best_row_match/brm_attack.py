@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import random
-from typing import List, Union, Any, Tuple
+from typing import List, Union, Any, Tuple, Optional
 from itertools import combinations
 import logging
 from anonymity_loss_coefficient.alc.alc_manager import ALCManager
@@ -18,7 +18,9 @@ class BrmAttack:
                  max_known_col_sets: int = 1000,
                  known_cols_sets_unique_threshold: float = 0.45,
                  num_per_secret_attacks: int = 100,
+                 max_num_anon_datasets: int = 1,
                  attack_name: str = '',
+                 additional_tags: dict = {},
                  verbose: bool = False,
                  no_counter: bool = True,
                  flush: bool = False,
@@ -26,6 +28,7 @@ class BrmAttack:
                  match_method: str = 'gower',
                  ) -> None:
         # up to work with ML modeling
+        self.max_num_anon_datasets = max_num_anon_datasets
         self.prior_experiment_swap_fraction = prior_experiment_swap_fraction
         self.flush = flush
         self.results_path = results_path
@@ -42,10 +45,25 @@ class BrmAttack:
         self.no_counter = no_counter
         self.logger = setup_logging(log_file_path=logger_path, file_level=file_level)
         self.logger.info(f"Original columns: {self.original_columns}")
+
+        attack_tags = {'type': 'brm_attack',
+                       'max_known_col_sets': max_known_col_sets,
+                       'known_cols_sets_unique_threshold': known_cols_sets_unique_threshold,
+                       'num_per_secret_attacks': num_per_secret_attacks,
+                       'max_num_anon_datasets': max_num_anon_datasets,
+        }
+        if not isinstance(additional_tags, dict):
+            raise TypeError("additional_tags must be a dictionary composed of key:value pairs.")
+        overlap = set(attack_tags) & set(additional_tags)
+        if overlap:
+            raise KeyError(f"Duplicate keys found in additional_tags: {overlap}. Please do not use these keys.")
+        attack_tags.update(additional_tags)
+
         self.alcm = ALCManager(df_original,
                                anon,
                                results_path = self.results_path,
                                attack_name = self.attack_name,
+                               attack_tags=attack_tags,
                                logger=self.logger,
                                prior_experiment_swap_fraction=self.prior_experiment_swap_fraction,
                                flush=self.flush)
@@ -146,6 +164,7 @@ class BrmAttack:
                                                     secret_column=secret_column,
                                                     column_classifications=self.alcm.get_column_classification_dict(),
                                                     match_method=self.match_method,
+                                                    max_num_anon_datasets=self.max_num_anon_datasets,
                                                     )
         number_of_min_gower_distance_matches = len(secret_values)
         if number_of_min_gower_distance_matches == 0:
