@@ -91,9 +91,9 @@ syn_data = [anonymize_data(df_original) for _ in range(4)]
 
 print("\nAt this point, we have prepared the dataframes needed for the ALC measures.")
 print("\nThe `ALCManager` class is used for all operations. It prepares the data, runs the baseline model, holds the various predictions, computes the ALC measures, and writes the results to files.\n" \
-"\nTo prepare the data, it removes NaN rows, discretizes continuous variables, and encodes non-integer columns as integers. Note in particular that, unless the optional parameter `discertize_in_place` is set to True, it creates a new column for each discretized column, given the name `colname__discretized`. The original column is also kept. The discretized column should be used for the secret column, while the original column should be used for the known column. The `flush` parameter (default `False`) tells the `ALCManager` to remove all previously recorded attacks. If set to `False`, the `ALCManager` will not repeat any attacks already run.")
-print('''\n`alcm = ALCManager(df_original, syn_data, results_path = "generic_example_files", attack_name = "Example Attacks", flush = True)`''')
-alcm = ALCManager(df_original, syn_data, results_path = "generic_example_files", attack_name = "Example Attacks", flush = True, random_state=42)
+"\nTo prepare the data, it removes NaN rows, discretizes continuous variables, and encodes non-integer columns as integers. Note in particular that, unless the optional parameter `discertize_in_place` is set to True, it creates a new column for each discretized column, given the name `colname__discretized`. The original column is also kept. The discretized column should be used for the secret column, while the original column should be used for the known column.\nThe `ALCManager` passes the `attack_tags` to result files for later housekeeping.\nThe `flush` parameter (default `False`) tells the `ALCManager` to remove all previously recorded attacks. If set to `False`, the `ALCManager` will not repeat any attacks already run.")
+print('''\n`alcm = ALCManager(df_original, syn_data, results_path = "generic_example_files", attack_name = "Example Attacks", attack_tags = {'foo': 1, 'bar': 'simple'}, flush = True)`''')
+alcm = ALCManager(df_original, syn_data, results_path = "generic_example_files", attack_name = "Example Attacks", attack_tags = {'foo': 1, 'bar': 'simple'}, flush = True, random_state=42)
 print("\nWe see for instance that the text column 't1' has been encoded as integers, and two discretized columns have been created from the continuous columns:")
 print("\n`alcm.df.orig_all.head()`")
 cb()
@@ -174,14 +174,16 @@ print("\n`df_per_comb_results = alcm.results(known_columns=known_columns, secret
 df_per_comb_results = alcm.results(known_columns=known_columns, secret_column=secret_column)
 
 print("\nLet's look at the precision, recall, and ALC scores:")
-print("\n`df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']]`")
+print("\n`df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc', 'atk_bar']]`")
 cb()
-print(df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
+print(df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc', 'atk_bar']])
 cb()
 
 print("\nAs it so happens, there is no correlation between 't1' and 'i2' or 'f1'. As a result, the baseline precision is always quite low. By contrast, because our anonymity is weak, attack precision is uniformly high. The fact that attack precision is greater than baseline precision leads to high ALC scores, showing that anonymity is indeed weak.")
 
 print("\nThe `paired` column indicates whether the ALC score is generated from a pair of closely-matched recall values for attack and baseline. If `False`, then the ALC score is generated from the best attack Privacy-Recall Coefficient (PRC) and the best baseline PRC regardless of recall. This represents the most appropriate ALC score (though not necessarily the highest ALC score).")
+
+print("\nNote that the attack tags are placed in this output as 'atk_key' columns names.")
 
 print("\nLet's run a second attack, here assuming that the attacker knows the value of column 'i1' and wants to predict the value of column 't1'.")
 known_columns = ['i1']

@@ -3,17 +3,16 @@ import pandas as pd
 from typing import Dict, List, Union, Any, Optional
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import KBinsDiscretizer
-from .defaults import defaults
 
 class DataFiles:
     def __init__(self,
                  df_original: pd.DataFrame,
                  anon: Union[pd.DataFrame, List[pd.DataFrame]],
-                 disc_max: int = defaults['disc_max'],
-                 disc_bins: int = defaults['disc_bins'],
-                 discretize_in_place: bool = defaults['discretize_in_place'],
-                 max_cntl_size: int = defaults['max_cntl_size'],
-                 max_cntl_percent: float = defaults['max_cntl_percent'],
+                 disc_max: int,
+                 disc_bins: int,
+                 discretize_in_place: bool,
+                 max_cntl_size: int,
+                 max_cntl_percent: float,
                  random_state: Optional[int] = None,
                  ) -> None:
         self.disc_max = disc_max

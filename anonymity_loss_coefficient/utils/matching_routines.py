@@ -13,15 +13,33 @@ def find_best_matches(
     secret_column: str,
     column_classifications: Dict[str, str],
     match_method: str = "gower",
+    max_num_anon_datasets: int = 1,
 ) -> Tuple[float, list[Any]]:
     """
     Finds the best matches in a list of DataFrames based on Gower distance.
     Returns the minimum adjusted Gower distance and the values of the secret_column for the best matches.
+
+    Currently supports two match methods: "gower" and "mod_gower". The latter takes into account the
+    frequency of the categorical value in the dataset. Our experiments suggest that "mod_gower" less
+    effective that "gower", so we use "gower" by default.
+
+    When there are multiple DataFrames in anon, especially cases where not all of the multiple dataframes
+    have the same columns, we may want to use the matches from multiple dataframes. The parameter
+    max_num_anon_datasets controls how many DataFrames in anon we will use to find the best matches.
+
+    Parameters:
+    - anon: list of pd.DataFrame, the DataFrames to search for matches.
+    - df_query: pd.DataFrame, the DataFrame with a single row to match against.
+    - secret_column: str, the name of the column containing the secret values. 
+    - column_classifications: dict, a dictionary mapping column names to "categorical" or "continuous".
+    - match_method: str, the method to use for matching ("gower" or "mod_gower").
+    - max_num_anon_datasets: int, the maximum number of DataFrames in anon to include in the set of matches.
     """
-    best_match_values = []
-    min_gower_distance = float("inf")
+    results = []
     known_columns = list(df_query.columns)
 
+    # Make a first pass through anon to prepare min_max values for each continuous column
+    min_max = {}
     for df_candidates in anon:
         # Check if df_candidates has the secret column and at least one known column
         if secret_column not in df_candidates.columns:
@@ -36,13 +54,23 @@ def find_best_matches(
 
         # Prepare min_max for continuous columns
         continuous_cols = [col for col in matching_columns if column_classifications.get(col) == "continuous"]
-        min_max = _get_min_max([df_candidates, df_query], continuous_cols)
+        min_max = _get_min_max([df_candidates, df_query], continuous_cols, min_max)
+
+    for df_candidates in anon:
+        # Check if df_candidates has the secret column and at least one known column
+        if secret_column not in df_candidates.columns:
+            continue
+        if not any(col in df_candidates.columns for col in known_columns):
+            continue
+
+        # Only use columns present in both df_candidates and df_query for matching
+        matching_columns = [col for col in known_columns if col in df_candidates.columns and col in df_query.columns]
+        if not matching_columns:
+            continue
 
         # Prepare column_classifications for only the columns present
         filtered_column_classifications = {col: column_classifications[col] for col in matching_columns if col in column_classifications}
 
-        #df_candidates_sub = df_candidates.loc[:, matching_columns]
-        # We need to subset the df_query because this is the basis for determining known columns
         df_query_sub = df_query[matching_columns]
 
         idx, gower_distance = _find_best_matches_one(
@@ -53,9 +81,7 @@ def find_best_matches(
             match_method=match_method,
         )
 
-        # We adjust the gower (or mod_gower) distance to account for the columns that are not in df_query
-        # For now, the penalty is always an assumption of 0.5 for each column not in df_query, but
-        # the code below is set up so that we can tweak this in the future.
+        # Adjust for missing columns
         all_categorical_cols = [col for col in df_query.columns if column_classifications.get(col) == "categorical"]
         all_continuous_cols = [col for col in df_query.columns if column_classifications.get(col) == "continuous"]
         mismatched_columns = [col for col in df_query.columns if col not in matching_columns]
@@ -68,26 +94,46 @@ def find_best_matches(
             mismatched_cat_weight = len(mismatched_cat_columns) * 0.5
         total_mismatched_weight = mismatched_con_weight + mismatched_cat_weight
         num_matched_columns = len(matching_columns)
-        # Treat each of the columns not in df_query as gower distance of 1
         adjusted_gower_distance = ((gower_distance * num_matched_columns) + total_mismatched_weight) / len(df_query.columns)
 
         # Get the secret values for the best matches
         secret_values = df_candidates.loc[idx, secret_column].tolist()
 
-        if adjusted_gower_distance < min_gower_distance:
-            min_gower_distance = adjusted_gower_distance
-            best_match_values = secret_values
-        elif adjusted_gower_distance == min_gower_distance:
-            best_match_values.extend(secret_values)
+        results.append((adjusted_gower_distance, secret_values))
 
-    return min_gower_distance, best_match_values
+    if not results:
+        return 1.0, []
+
+    # Sort by adjusted_gower_distance
+    results.sort(key=lambda x: x[0])
+    min_distance = results[0][0]
+
+    # Collect all sets with the same min_distance
+    min_sets = [r for r in results if r[0] == min_distance]
+
+    if len(min_sets) >= max_num_anon_datasets:
+        selected = min_sets
+    else:
+        # Add additional sets (with higher distances) to reach max_num_anon_datasets
+        selected = min_sets
+        for r in results[len(min_sets):]:
+            selected.append(r)
+            if len(selected) >= max_num_anon_datasets:
+                break
+
+    avg_adjusted_gower_distance = sum(r[0] for r in selected) / len(selected)
+    all_secret_values = []
+    for _, secrets in selected:
+        all_secret_values.extend(secrets)
+
+    return avg_adjusted_gower_distance, all_secret_values
 
 def find_best_matches_one(df_candidates: pd.DataFrame,
                       df_query: pd.DataFrame,
                       column_classifications: Dict[str, str],
                       ) -> Tuple[pd.Index, float]:
     continuous_cols = [col for col, cls in column_classifications.items() if cls == "continuous"]
-    min_max = _get_min_max([df_candidates, df_query], continuous_cols)
+    min_max = _get_min_max([df_candidates, df_query], continuous_cols, {})
     return _find_best_matches_one(
         df_candidates, df_query, column_classifications, min_max 
     )
@@ -247,10 +293,13 @@ def best_match_confidence(gower_distance: float, modal_fraction: float, match_co
         raise ValueError("Error: modal_fraction must be between 0 and 1.")
     return round((1 - gower_distance) * modal_fraction, 3)
 
-def _get_min_max(df_list: list, columns: list) -> dict:
-    min_max = {}
+def _get_min_max(df_list: list, columns: list, min_max: dict) -> dict:
     for col in columns:
-        min_val, max_val = None, None
+        if col in min_max:
+            min_val = min_max[col][0]
+            max_val = min_max[col][1]
+        else:
+            min_val, max_val = None, None
         for df in df_list:
             if col in df.columns:
                 col_min = df[col].min()

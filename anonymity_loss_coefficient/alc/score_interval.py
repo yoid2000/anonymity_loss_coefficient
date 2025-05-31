@@ -5,13 +5,12 @@ import logging
 from typing import Dict, List, Tuple, Optional, Any
 from scipy.stats import norm
 from .anonymity_loss_coefficient import AnonymityLossCoefficient
-from .defaults import defaults
 
 class ScoreInterval:
-    def __init__(self, si_type: str = defaults['si_type'],
-                       si_confidence: float = defaults['si_confidence'],
-                       halt_interval_thresh: float = defaults['halt_interval_thresh'],
-                       max_score_interval: float = defaults['max_score_interval'],
+    def __init__(self, si_type: str,
+                       si_confidence: float,
+                       halt_interval_thresh: float,
+                       max_score_interval: float,
                        logger: logging.Logger = None,
                        ) -> None:
         if si_type not in self.valid_measures():

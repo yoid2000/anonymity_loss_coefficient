@@ -15,34 +15,38 @@ class AnonymityLossCoefficient:
     safe amount of loss. In other words, the loss is little enough that it 
     eliminates attacker incentive.
     '''
-    def __init__(self) -> None:
-        # _prc_abs_weight is the weight given to the absolute PRC difference
-        self._prc_abs_weight: float = 0.0
-        # _recall_adjust_min_intercept is the recall value below which precision
+    def __init__(self,
+                 prc_abs_weight: float = 0.0,
+                 recall_adjust_min_intercept: float = 1/10000,
+                 recall_adjust_strength: float = 3.0,
+                 ) -> None:
+        # prc_abs_weight is the weight given to the absolute PRC difference
+        self.prc_abs_weight: float = 0.0
+        # recall_adjust_min_intercept is the recall value below which precision
         # has no effect on the PRC
-        self._recall_adjust_min_intercept: float = 1/10000
-        # Higher _recall_adjust_strength leads to lower recall adjustment
-        self._recall_adjust_strength: float = 3.0
+        self.recall_adjust_min_intercept: float = 1/10000
+        # Higher recall_adjust_strength leads to lower recall adjustment
+        self.recall_adjust_strength: float = 3.0
 
     def set_param(self, param: str, value: float) -> None:
         if param == 'prc_abs_weight':
-            self._prc_abs_weight = value
+            self.prc_abs_weight = value
         if param == 'recall_adjust_min_intercept':
-            self._recall_adjust_min_intercept = value
+            self.recall_adjust_min_intercept = value
         if param == 'recall_adjust_strength':
-            self._recall_adjust_strength = value
+            self.recall_adjust_strength = value
 
     def get_param(self, param: str) -> Optional[float]:
         if param == 'prc_abs_weight':
-            return self._prc_abs_weight
+            return self.prc_abs_weight
         if param == 'recall_adjust_min_intercept':
-            return self._recall_adjust_min_intercept
+            return self.recall_adjust_min_intercept
         if param == 'recall_adjust_strength':
-            return self._recall_adjust_strength
+            return self.recall_adjust_strength
         return None
 
     def _recall_adjust(self, recall: float) -> float:
-        adjust = (np.log10(recall) / np.log10(self._recall_adjust_min_intercept)) ** self._recall_adjust_strength
+        adjust = (np.log10(recall) / np.log10(self.recall_adjust_min_intercept)) ** self.recall_adjust_strength
         return 1 - adjust
 
     def _prc_improve_absolute(self, prc_base: float, prc_attack: float) -> float:
@@ -58,7 +62,7 @@ class AnonymityLossCoefficient:
     def _prc_improve(self, prc_base: float, prc_attack: float) -> float:
         prc_rel = self._prc_improve_relative(prc_base, prc_attack)
         prc_abs = self._prc_improve_absolute(prc_base, prc_attack)
-        prc_improve = (self._prc_abs_weight * prc_abs) + ((1 - self._prc_abs_weight) * prc_rel)
+        prc_improve = (self.prc_abs_weight * prc_abs) + ((1 - self.prc_abs_weight) * prc_rel)
         return prc_improve
 
     def prc(self, prec: float, recall: float) -> float:
@@ -70,10 +74,10 @@ class AnonymityLossCoefficient:
         prec = max(prec, 0.0)
         recall = min(recall, 1.0)
         recall = max(recall, 0.0)
-        if recall <= self._recall_adjust_min_intercept:
+        if recall <= self.recall_adjust_min_intercept:
             return recall
-        Rmin = self._recall_adjust_min_intercept
-        alpha = self._recall_adjust_strength
+        Rmin = self.recall_adjust_min_intercept
+        alpha = self.recall_adjust_strength
         R = recall
         P = prec
         return (1 - ((np.log10(R) / np.log10(Rmin)) ** alpha)) * P
@@ -103,8 +107,8 @@ class AnonymityLossCoefficient:
     def prec_from_prc_recall(self, prc: float, recall: float) -> float:
         ''' Given a PRC and recall, return the precision.
         '''
-        Rmin = self._recall_adjust_min_intercept
-        alpha = self._recall_adjust_strength
+        Rmin = self.recall_adjust_min_intercept
+        alpha = self.recall_adjust_strength
         R = recall
         PRC = prc
         return PRC / (1 - (np.log10(R) / np.log10(Rmin)) ** alpha)
@@ -112,8 +116,8 @@ class AnonymityLossCoefficient:
     def recall_from_prc_prec(self, prc: float, prec: float) -> float:
         ''' Given a PRC and precision, return the recall.
         '''
-        Rmin = self._recall_adjust_min_intercept
-        alpha = self._recall_adjust_strength
+        Rmin = self.recall_adjust_min_intercept
+        alpha = self.recall_adjust_strength
         P = prec
         PRC = prc
         return 10 ** (np.log10(Rmin) * (1 - PRC / P) ** (1 / alpha))
