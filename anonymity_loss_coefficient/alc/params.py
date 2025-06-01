@@ -77,5 +77,3 @@ class ALCParams:
 # ap.add_group('mygroup', foo=1, bar=2)
 # print(ap.mygroup.foo)
 # ap.mygroup.foo = 42
-# for param_str in ap.iter_params():
-#     print(param_str)

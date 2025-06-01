@@ -3,6 +3,7 @@ import pandas as pd
 from typing import Dict, List, Union, Any, Optional
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import KBinsDiscretizer
+import warnings
 
 class DataFiles:
     def __init__(self,
@@ -167,7 +168,9 @@ class DataFiles:
                     df.loc[:, col] = bin_indices
                 else:
                     # Create a new column with integer values
-                    df.loc[:, f"{col}__discretized"] = bin_indices
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=pd.errors.SettingWithCopyWarning)
+                        df.loc[:, f"{col}__discretized"] = bin_indices    
 
     def _transform_df(self, df: pd.DataFrame) -> None:
         for col, encoder in self._encoders.items():

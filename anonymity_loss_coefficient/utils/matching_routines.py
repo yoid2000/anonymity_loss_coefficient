@@ -3,10 +3,6 @@ import numpy as np
 from collections import Counter
 from typing import Any, Tuple, Dict, List, Union
 
-# Yes, that's right, we are banking on the real data not having these values  :(
-num_filler = -123456789
-str_filler = "no__match_xyz"
-
 def find_best_matches(
     anon: list[pd.DataFrame],
     df_query: pd.DataFrame,
