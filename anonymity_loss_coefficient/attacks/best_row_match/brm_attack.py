@@ -11,7 +11,7 @@ import psutil
 import tracemalloc
 
 # This is GB. Set to 0 to disable memory check.
-mem_threshold = 5
+mem_threshold = 25
 
 pp = pprint.PrettyPrinter(indent=4)
 

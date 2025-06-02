@@ -135,6 +135,7 @@ class DataFiles:
         if self.orig is not None:
             del self.orig
             del self.cntl
+            print("Garbage collecting")
             gc.collect()
         self.cntl = self.orig_all.iloc[row_index:row_index + self.cntl_size]
         # Shuffle the control data to ensure randomness
