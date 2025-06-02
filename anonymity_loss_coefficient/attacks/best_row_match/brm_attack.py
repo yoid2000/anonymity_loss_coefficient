@@ -10,7 +10,8 @@ import pprint
 import psutil
 import tracemalloc
 
-do_memory_check = True
+# This is GB. Set to 0 to disable memory check.
+mem_threshold = 5
 
 pp = pprint.PrettyPrinter(indent=4)
 
@@ -105,15 +106,15 @@ class BrmAttack:
             known_columns = self.all_known_columns
         self.logger.info(f"\nAttack secret column {secret_column}\n    assuming {len(known_columns)} known columns {known_columns}")
         counter = 1
-        if do_memory_check:
+        if mem_threshold > 0:
             print("Starting memory check")
             process = psutil.Process(os.getpid())
             tracemalloc.start()
         for atk_row, _, _ in self.alcm.predictor(known_columns, secret_column):
-            if do_memory_check:
+            if mem_threshold > 0:
                 mem_bytes = process.memory_info().rss
-                if mem_bytes >= 25 * 1024 ** 3:  # 25 GB in bytes
-                    print("Memory usage is 25GB or more")
+                if mem_bytes >= mem_threshold * 1024 ** 3:  # GB
+                    print(f"Memory usage is {mem_threshold}GB or more")
                     snapshot = tracemalloc.take_snapshot()
                     top_stats = snapshot.statistics('lineno')
 
