@@ -7,6 +7,10 @@ import logging
 from anonymity_loss_coefficient.alc.alc_manager import ALCManager
 from anonymity_loss_coefficient.utils import get_good_known_column_sets, setup_logging, find_best_matches, modal_fraction, best_match_confidence
 import pprint
+import psutil
+import tracemalloc
+
+do_memory_check = True
 
 pp = pprint.PrettyPrinter(indent=4)
 
@@ -101,7 +105,22 @@ class BrmAttack:
             known_columns = self.all_known_columns
         self.logger.info(f"\nAttack secret column {secret_column}\n    assuming {len(known_columns)} known columns {known_columns}")
         counter = 1
+        if do_memory_check:
+            print("Starting memory check")
+            process = psutil.Process(os.getpid())
+            tracemalloc.start()
         for atk_row, _, _ in self.alcm.predictor(known_columns, secret_column):
+            if do_memory_check:
+                mem_bytes = process.memory_info().rss
+                if mem_bytes >= 25 * 1024 ** 3:  # 25 GB in bytes
+                    print("Memory usage is 25GB or more")
+                    snapshot = tracemalloc.take_snapshot()
+                    top_stats = snapshot.statistics('lineno')
+
+                    print("Top 50 memory allocation locations:")
+                    for stat in top_stats[:50]:
+                        print(stat)
+                    quit()
             # Note that atk_row contains only the known_columns
             encoded_predicted_value, prediction_confidence = self._best_row_attack(atk_row, secret_column)
             if encoded_predicted_value is None:
