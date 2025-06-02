@@ -116,11 +116,12 @@ class BrmAttack:
                 if mem_bytes >= mem_threshold * 1024 ** 3:  # GB
                     print(f"Memory usage is {mem_threshold}GB or more")
                     snapshot = tracemalloc.take_snapshot()
-                    top_stats = snapshot.statistics('lineno')
-
-                    print("Top 50 memory allocation locations:")
-                    for stat in top_stats[:50]:
-                        print(stat)
+                    top_stats = snapshot.statistics('traceback')
+                    for stat in top_stats[:5]:
+                        print("Traceback (most recent call last):")
+                        for line in stat.traceback.format():
+                            print(line)
+                        print(f"{stat.size / 1024:.1f} KiB allocated\n")
                     quit()
             # Note that atk_row contains only the known_columns
             encoded_predicted_value, prediction_confidence = self._best_row_attack(atk_row, secret_column)
