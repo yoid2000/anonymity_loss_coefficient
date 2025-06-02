@@ -109,7 +109,7 @@ class BrmAttack:
         if mem_threshold > 0:
             print("Starting memory check")
             process = psutil.Process(os.getpid())
-            tracemalloc.start()
+            tracemalloc.start(25)
         for atk_row, _, _ in self.alcm.predictor(known_columns, secret_column):
             if mem_threshold > 0:
                 mem_bytes = process.memory_info().rss
