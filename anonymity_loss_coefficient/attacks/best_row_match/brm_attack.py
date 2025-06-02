@@ -123,6 +123,8 @@ class BrmAttack:
                             print(line)
                         print(f"{stat.size / 1024:.1f} KiB allocated\n")
                     quit()
+                else:
+                    print(f"Memory usage is {mem_bytes / 1024 ** 2:.1f} MiB, below threshold of {mem_threshold}GB")
             # Note that atk_row contains only the known_columns
             encoded_predicted_value, prediction_confidence = self._best_row_attack(atk_row, secret_column)
             if encoded_predicted_value is None:
