@@ -4,6 +4,7 @@ from typing import Dict, List, Union, Any, Optional
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import KBinsDiscretizer
 import warnings
+import gc
 
 class DataFiles:
     def __init__(self,
@@ -131,6 +132,10 @@ class DataFiles:
             self.cntl = None
             self.orig = None
             return False
+        if self.orig is not None:
+            del self.orig
+            del self.cntl
+            gc.collect()
         self.cntl = self.orig_all.iloc[row_index:row_index + self.cntl_size]
         # Shuffle the control data to ensure randomness
         self.cntl = self.cntl.sample(frac=1, random_state=self.random_state).reset_index(drop=True)
