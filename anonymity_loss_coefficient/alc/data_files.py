@@ -133,6 +133,7 @@ class DataFiles:
             self.orig = None
             return False
         if self.orig is not None:
+            # TODO probably delete this
             del self.orig
             del self.cntl
             print("Garbage collecting")
