@@ -1,12 +1,17 @@
 import os
 import pandas as pd
 import random
-from typing import List, Union, Any, Tuple
+from typing import List, Union, Any, Tuple, Optional
 from itertools import combinations
 import logging
 from anonymity_loss_coefficient.alc.alc_manager import ALCManager
 from anonymity_loss_coefficient.utils import get_good_known_column_sets, setup_logging, find_best_matches, modal_fraction, best_match_confidence
 import pprint
+import psutil
+import tracemalloc
+
+# This is GB. Set to 0 to disable memory check.
+mem_threshold = 25
 
 pp = pprint.PrettyPrinter(indent=4)
 
@@ -18,7 +23,9 @@ class BrmAttack:
                  max_known_col_sets: int = 1000,
                  known_cols_sets_unique_threshold: float = 0.45,
                  num_per_secret_attacks: int = 100,
+                 max_num_anon_datasets: int = 1,
                  attack_name: str = '',
+                 additional_tags: dict = {},
                  verbose: bool = False,
                  no_counter: bool = True,
                  flush: bool = False,
@@ -26,6 +33,7 @@ class BrmAttack:
                  match_method: str = 'gower',
                  ) -> None:
         # up to work with ML modeling
+        self.max_num_anon_datasets = max_num_anon_datasets
         self.prior_experiment_swap_fraction = prior_experiment_swap_fraction
         self.flush = flush
         self.results_path = results_path
@@ -42,10 +50,25 @@ class BrmAttack:
         self.no_counter = no_counter
         self.logger = setup_logging(log_file_path=logger_path, file_level=file_level)
         self.logger.info(f"Original columns: {self.original_columns}")
+
+        attack_tags = {'type': 'brm_attack',
+                       'max_known_col_sets': max_known_col_sets,
+                       'known_cols_sets_unique_threshold': known_cols_sets_unique_threshold,
+                       'num_per_secret_attacks': num_per_secret_attacks,
+                       'max_num_anon_datasets': max_num_anon_datasets,
+        }
+        if not isinstance(additional_tags, dict):
+            raise TypeError("additional_tags must be a dictionary composed of key:value pairs.")
+        overlap = set(attack_tags) & set(additional_tags)
+        if overlap:
+            raise KeyError(f"Duplicate keys found in additional_tags: {overlap}. Please do not use these keys.")
+        attack_tags.update(additional_tags)
+
         self.alcm = ALCManager(df_original,
                                anon,
                                results_path = self.results_path,
                                attack_name = self.attack_name,
+                               attack_tags=attack_tags,
                                logger=self.logger,
                                prior_experiment_swap_fraction=self.prior_experiment_swap_fraction,
                                flush=self.flush)
@@ -83,7 +106,25 @@ class BrmAttack:
             known_columns = self.all_known_columns
         self.logger.info(f"\nAttack secret column {secret_column}\n    assuming {len(known_columns)} known columns {known_columns}")
         counter = 1
+        if mem_threshold > 0:
+            print("Starting memory check")
+            process = psutil.Process(os.getpid())
+            tracemalloc.start(25)
         for atk_row, _, _ in self.alcm.predictor(known_columns, secret_column):
+            if mem_threshold > 0:
+                mem_bytes = process.memory_info().rss
+                if mem_bytes >= mem_threshold * 1024 ** 3:  # GB
+                    print(f"Memory usage is {mem_threshold}GB or more")
+                    snapshot = tracemalloc.take_snapshot()
+                    top_stats = snapshot.statistics('traceback')
+                    for stat in top_stats[:5]:
+                        print("Traceback (most recent call last):")
+                        for line in stat.traceback.format():
+                            print(line)
+                        print(f"{stat.size / 1024:.1f} KiB allocated\n")
+                    quit()
+                else:
+                    print(f"Memory usage is {mem_bytes / 1024 ** 2:.1f} MiB, below threshold of {mem_threshold}GB")
             # Note that atk_row contains only the known_columns
             encoded_predicted_value, prediction_confidence = self._best_row_attack(atk_row, secret_column)
             if encoded_predicted_value is None:
@@ -146,6 +187,7 @@ class BrmAttack:
                                                     secret_column=secret_column,
                                                     column_classifications=self.alcm.get_column_classification_dict(),
                                                     match_method=self.match_method,
+                                                    max_num_anon_datasets=self.max_num_anon_datasets,
                                                     )
         number_of_min_gower_distance_matches = len(secret_values)
         if number_of_min_gower_distance_matches == 0:

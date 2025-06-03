@@ -3,17 +3,18 @@ import pandas as pd
 from typing import Dict, List, Union, Any, Optional
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import KBinsDiscretizer
-from .defaults import defaults
+import warnings
+import gc
 
 class DataFiles:
     def __init__(self,
                  df_original: pd.DataFrame,
                  anon: Union[pd.DataFrame, List[pd.DataFrame]],
-                 disc_max: int = defaults['disc_max'],
-                 disc_bins: int = defaults['disc_bins'],
-                 discretize_in_place: bool = defaults['discretize_in_place'],
-                 max_cntl_size: int = defaults['max_cntl_size'],
-                 max_cntl_percent: float = defaults['max_cntl_percent'],
+                 disc_max: int,
+                 disc_bins: int,
+                 discretize_in_place: bool,
+                 max_cntl_size: int,
+                 max_cntl_percent: float,
                  random_state: Optional[int] = None,
                  ) -> None:
         self.disc_max = disc_max
@@ -131,6 +132,11 @@ class DataFiles:
             self.cntl = None
             self.orig = None
             return False
+        if self.orig is not None:
+            del self.orig
+            del self.cntl
+            print("Garbage collecting")
+            gc.collect()
         self.cntl = self.orig_all.iloc[row_index:row_index + self.cntl_size]
         # Shuffle the control data to ensure randomness
         self.cntl = self.cntl.sample(frac=1, random_state=self.random_state).reset_index(drop=True)
@@ -168,7 +174,9 @@ class DataFiles:
                     df.loc[:, col] = bin_indices
                 else:
                     # Create a new column with integer values
-                    df.loc[:, f"{col}__discretized"] = bin_indices
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=pd.errors.SettingWithCopyWarning)
+                        df.loc[:, f"{col}__discretized"] = bin_indices    
 
     def _transform_df(self, df: pd.DataFrame) -> None:
         for col, encoder in self._encoders.items():

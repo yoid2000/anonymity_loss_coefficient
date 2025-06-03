@@ -11,7 +11,7 @@ from .baseline_predictor import BaselinePredictor
 from .score_interval import ScoreInterval
 from .anonymity_loss_coefficient import AnonymityLossCoefficient
 from .reporting import Reporter
-from .defaults import defaults
+from .params import ALCParams
 from anonymity_loss_coefficient.utils import setup_logging
 import pprint
 pp = pprint.PrettyPrinter(indent=4)
@@ -22,29 +22,70 @@ class ALCManager:
                        anon: Union[pd.DataFrame, List[pd.DataFrame]],
                        results_path: str,
                        attack_name: str = '',
-                       logger: logging.Logger = None,
-                       flush: bool = defaults['flush'],
-                       disc_max: int = defaults['disc_max'],
-                       disc_bins: int = defaults['disc_bins'],
-                       discretize_in_place: bool = defaults['discretize_in_place'],
-                       si_type: str = defaults['si_type'],
-                       si_confidence: float = defaults['si_confidence'],
-                       max_score_interval: float = defaults['max_score_interval'],
-                       halt_thresh_low = defaults['halt_thresh_low'],
-                       halt_thresh_high = defaults['halt_thresh_high'],
-                       halt_interval_thresh = defaults['halt_interval_thresh'],
-                       halt_min_significant_attack_prcs = defaults['halt_min_significant_attack_prcs'],
-                       halt_min_prc_improvement = defaults['halt_min_prc_improvement'],
-                       halt_check_count = defaults['halt_check_count'],
+                       logger: Optional[logging.Logger] = None,
+                       flush: bool = False,
+                       attack_tags: Optional[Dict[str, Any]] = None,
+                       # ALCManager parameters
+                       halt_thresh_low: Optional[float] = None,
+                       halt_thresh_high: Optional[float] = None,
+                       halt_interval_thresh: Optional[float] = None,
+                       halt_min_significant_attack_prcs: Optional[int] = None,
+                       halt_min_prc_improvement: Optional[float] = None,
+                       halt_check_count: Optional[int] = None,
+                       # AnonymityLossCoefficient parameters
+                       prc_abs_weight: Optional[float] = None,
+                       recall_adjust_min_intercept: Optional[float] = None,
+                       recall_adjust_strength: Optional[float] = None,
+                       # DataFiles parameters
+                       disc_max: Optional[int] = None,
+                       disc_bins: Optional[int] = None,
+                       discretize_in_place: Optional[bool] = None,
+                       max_cntl_size: Optional[int] = None,
+                       max_cntl_percent: Optional[float] = None,
+                       # ScoreInterval parameters
+                       si_type: Optional[str] = None,
+                       si_confidence: Optional[float] = None,
+                       max_score_interval: Optional[float] = None,
+
                        prior_experiment_swap_fraction: float = -1.0,
                        random_state: Optional[int] = None
                        ) -> None:
+        self.alcp = ALCParams()
+        self.alcp.set_param(self.alcp.alcm, 'halt_thresh_low', halt_thresh_low)
+        self.alcp.set_param(self.alcp.alcm, 'halt_thresh_high', halt_thresh_high)
+        self.alcp.set_param(self.alcp.alcm, 'halt_interval_thresh', halt_interval_thresh)
+        self.alcp.set_param(self.alcp.alcm, 'halt_min_significant_attack_prcs', halt_min_significant_attack_prcs)
+        self.alcp.set_param(self.alcp.alcm, 'halt_min_prc_improvement', halt_min_prc_improvement)
+        self.alcp.set_param(self.alcp.alcm, 'halt_check_count', halt_check_count)
+
+        self.alcp.set_param(self.alcp.alc, 'prc_abs_weight', prc_abs_weight)
+        self.alcp.set_param(self.alcp.alc, 'recall_adjust_min_intercept', recall_adjust_min_intercept)
+        self.alcp.set_param(self.alcp.alc, 'recall_adjust_strength', recall_adjust_strength)
+
+        self.alcp.set_param(self.alcp.si, 'si_type', si_type)
+        self.alcp.set_param(self.alcp.si, 'si_confidence', si_confidence)
+        self.alcp.set_param(self.alcp.si, 'max_score_interval', max_score_interval)
+
+        self.alcp.set_param(self.alcp.df, 'disc_max', disc_max)
+        self.alcp.set_param(self.alcp.df, 'disc_bins', disc_bins)
+        self.alcp.set_param(self.alcp.df, 'discretize_in_place', discretize_in_place)
+        self.alcp.set_param(self.alcp.df, 'max_cntl_size', max_cntl_size)
+        self.alcp.set_param(self.alcp.df, 'max_cntl_percent', max_cntl_percent)
+
+        if attack_tags is not None:
+            # add attack parameters to later record
+            self.alcp.add_group('atk')
+            for k, v in attack_tags.items():
+                self.alcp.set_param(self.alcp.atk, k, v)
+
         self.df = DataFiles(
                  df_original=df_original,
                  anon=anon,
-                 disc_max=disc_max,
-                 disc_bins=disc_bins,
-                 discretize_in_place=discretize_in_place,
+                 disc_max=self.alcp.df.disc_max,
+                 disc_bins=self.alcp.df.disc_bins,
+                 discretize_in_place=self.alcp.df.discretize_in_place,
+                 max_cntl_size=self.alcp.df.max_cntl_size,
+                 max_cntl_percent=self.alcp.df.max_cntl_percent,
                  random_state=random_state,
         )
         self.prior_experiment_swap_fraction = prior_experiment_swap_fraction     # experimental purposes
@@ -53,19 +94,19 @@ class ALCManager:
             logger_path = os.path.join(results_path, 'alc_manager.log')
             self.logger = setup_logging(log_file_path=logger_path)
         self.base_pred = BaselinePredictor()
-        self.alc = AnonymityLossCoefficient()
+        self.alc = AnonymityLossCoefficient(
+            prc_abs_weight=self.alcp.alc.prc_abs_weight,
+            recall_adjust_min_intercept=self.alcp.alc.recall_adjust_min_intercept,
+            recall_adjust_strength=self.alcp.alc.recall_adjust_strength,
+        )
         self.random_state = random_state
-        self.max_score_interval = max_score_interval
-        self.halt_thresh_low = halt_thresh_low
-        self.halt_thresh_high = halt_thresh_high
-        self.halt_interval_thresh = halt_interval_thresh
-        self.halt_min_significant_attack_prcs = halt_min_significant_attack_prcs
-        self.halt_min_prc_improvement = halt_min_prc_improvement
-        self.halt_check_count = halt_check_count
-        self.si_confidence = si_confidence
-        self.si_type = si_type
-        self.si_secret = ''
-        self.si_known_columns = []
+        self.max_score_interval = self.alcp.si.max_score_interval
+        self.halt_thresh_low = self.alcp.alcm.halt_thresh_low
+        self.halt_thresh_high = self.alcp.alcm.halt_thresh_high
+        self.halt_interval_thresh = self.alcp.alcm.halt_interval_thresh
+        self.halt_min_significant_attack_prcs = self.alcp.alcm.halt_min_significant_attack_prcs
+        self.halt_min_prc_improvement = self.alcp.alcm.halt_min_prc_improvement
+        self.halt_check_count = self.alcp.alcm.halt_check_count
         self.attack_in_progress = False
 
         self.rep = Reporter(results_path=results_path,
@@ -123,7 +164,11 @@ class ALCManager:
                 return
             decoded_ignore_value = self.decode_value(secret_column, ignore_value)
             self.logger.info(f"The value {decoded_ignore_value} constitutes {round((100*(1-ignore_fraction)),2)} % of column {secret_column}, so we'll ignore a proportional fraction of those values in the attacks so that our results are better balanced.")
-        si_halt = ScoreInterval(si_type=self.si_type, si_confidence=self.si_confidence, max_score_interval=self.max_score_interval, logger=self.logger)
+        si_halt = ScoreInterval(si_type=self.alcp.si.si_type,
+                                halt_interval_thresh=self.alcp.alcm.halt_interval_thresh,
+                                si_confidence=self.alcp.si.si_confidence,
+                                max_score_interval=self.alcp.si.max_score_interval,
+                                logger=self.logger)
 
         # Initialize the first set of control rows
         self._init_cntl_and_build_model(known_columns, secret_column)
@@ -181,7 +226,7 @@ class ALCManager:
                 self.halt_info.update({'elapsed_time': elapsed_time})
                 if self.halt_info['halted'] is True:
                     self.attack_in_progress = False
-                    self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'])
+                    self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.alcp)
                     return
             is_assigned = self._next_cntl_and_build_model()
             if is_assigned is False:
@@ -189,7 +234,7 @@ class ALCManager:
                 elapsed_time = round(end_time - self.start_time, 4)
                 self.halt_info = {'halted': True, 'reason': 'exhausted all rows',  'num_attacks': num_attacks, 'halt_code': 'exhausted', 'elapsed_time': elapsed_time}
                 self.attack_in_progress = False
-                self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'])
+                self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.alcp)
                 return
 
     def abstention(self) -> bool:
@@ -205,6 +250,7 @@ class ALCManager:
         self.prediction_made = True
         self.encoded_predicted_value = encoded_predicted_value
         self.prediction_confidence = prediction_confidence
+
 
     def results(self, known_columns: Optional[List[str]] = None,
                       secret_column: Optional[str] = None) -> Optional[pd.DataFrame]:

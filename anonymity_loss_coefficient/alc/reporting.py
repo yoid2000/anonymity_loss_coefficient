@@ -7,15 +7,15 @@ import json
 from typing import List, Optional, Dict
 matplotlib.use('Agg')  # This needed because of tkinter issues
 import matplotlib.pyplot as plt
-from .defaults import defaults
 from anonymity_loss_coefficient.utils import read_table
+from .params import ALCParams
 
 class Reporter():
     def __init__(self,
                  results_path: str,
                  attack_name: str,
                  logger: logging.Logger,
-                 flush: bool = defaults['flush'],
+                 flush: bool,
                  ) -> None:
         self.results_path = results_path
         os.makedirs(self.results_path, exist_ok=True)
@@ -108,7 +108,11 @@ class Reporter():
         df_secret_known_results = pd.DataFrame(self.list_secret_known_results_done)
         return self._filter_df(df_secret_known_results, known_columns, secret_column)
 
-    def _alc_per_secret_and_known(self, score_info: List[Dict], halt_code: str, elapsed_time: float) -> List[Dict]:
+    def _alc_per_secret_and_known(self,
+                                  score_info: List[Dict],
+                                  halt_code: str,
+                                  elapsed_time: float,
+                                  alcp: ALCParams) -> List[Dict]:
         # self.list_results contains the results of the latest attack only
         df_in = pd.DataFrame(self.list_results)
         df_in['prediction'] = df_in['predicted_value'] == df_in['true_value']
@@ -129,6 +133,8 @@ class Reporter():
             score['attack_count'] = attack_count
             score['halt_code'] = halt_code
             score['elapsed_time'] = elapsed_time
+            for group_name, param, value in alcp.iter_params():
+                score[f'{group_name}_{param}'] = value
             rows.append(score)
         return rows
 
@@ -155,12 +161,16 @@ class Reporter():
     def _make_known_columns_str(self, known_columns: List[str]) -> str:
         return json.dumps(sorted(known_columns))
 
-    def consolidate_results(self, score_info: List[Dict], halt_code: str, elapsed_time: float) -> None:
+    def consolidate_results(self,
+                            score_info: List[Dict],
+                            halt_code: str,
+                            elapsed_time: float,
+                            alcp: ALCParams) -> None:
         if len(self.list_results) == 0:
             self.logger.warning("Warning: No results to consolidate.")
             return
         # move the results from the list to a dataframe
-        list_secret_known_results = self._alc_per_secret_and_known(score_info, halt_code, elapsed_time)
+        list_secret_known_results = self._alc_per_secret_and_known(score_info, halt_code, elapsed_time, alcp)
         # At this point, self.list_results, and list_secret_known_results
         # contain the results of the latest attack only
         self.list_results_done += self.list_results

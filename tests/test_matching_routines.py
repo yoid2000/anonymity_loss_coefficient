@@ -67,7 +67,7 @@ def test_get_min_max():
     df_list = [df1, df2, df3]
     columns = ['A', 'B', 'C', 'D']
 
-    result = _get_min_max(df_list, columns)
+    result = _get_min_max(df_list, columns, {})
 
     assert result['A'] == (1, 5)
     assert result['B'] == (5, 30)
@@ -93,7 +93,7 @@ def test_find_best_matches_basic():
     anon = [df1, df2]
 
     df_query = pd.DataFrame({
-        'Age': [25],
+        'Age': [25.1],
         'Gender': ['Male'],
         'Income': [50000]
     })
@@ -109,8 +109,8 @@ def test_find_best_matches_basic():
         anon, df_query, secret_column, column_classifications
     )
 
-    # Both df1 and df2 have a row with exact match, so both should be returned
-    assert min_gower_distance == 0.0
+    # approx assertion for floating point comparison
+    assert min_gower_distance == pytest.approx(0.002, 0.0001)
     assert set(best_match_values) == {'A', 'D'}
 
 def test_find_best_matches_with_missing_columns():
@@ -261,7 +261,6 @@ def test_modal_fraction_empty():
         modal_fraction([])
 
 def test_find_best_matches_mod_gower_basic():
-    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
 
     df1 = pd.DataFrame({
         'Age': [25, 35, 45],
@@ -299,7 +298,6 @@ def test_find_best_matches_mod_gower_basic():
     assert set(best_match_values) == {'D'}
 
 def test_find_best_matches_mod_gower_with_missing_columns():
-    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
 
     # df1 is missing 'Income', df2 is missing 'Gender'
     df1 = pd.DataFrame({
@@ -336,7 +334,6 @@ def test_find_best_matches_mod_gower_with_missing_columns():
     assert set(best_match_values) == {'C'}
 
 def test_find_best_matches_mod_gower_no_match():
-    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
 
     df1 = pd.DataFrame({
         'Age': [35, 45],
@@ -370,7 +367,6 @@ def test_find_best_matches_mod_gower_no_match():
     assert len(best_match_values) > 0
 
 def test_find_best_matches_mod_gower_anon_missing_and_extra_columns():
-    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
 
     # df1 is missing 'Income', has extra 'Location'
     df1 = pd.DataFrame({
@@ -413,3 +409,143 @@ def test_find_best_matches_mod_gower_anon_missing_and_extra_columns():
 
     assert min_distance == pytest.approx(1/6, 0.01)
     assert set(best_match_values) == {'C'}
+
+def test_find_best_matches_multiple_anon_datasets_min_sets():
+
+    df1 = pd.DataFrame({
+        'Age': [25, 35],
+        'Gender': ['Male', 'Female'],
+        'Secret': ['A', 'B']
+    })
+    df2 = pd.DataFrame({
+        'Age': [25, 45],
+        'Gender': ['Male', 'Male'],
+        'Secret': ['C', 'D']
+    })
+    anon = [df1, df2]
+
+    df_query = pd.DataFrame({
+        'Age': [25],
+        'Gender': ['Male']
+    })
+
+    column_classifications = {
+        'Age': 'continuous',
+        'Gender': 'categorical'
+    }
+    secret_column = 'Secret'
+
+    avg_dist, all_secrets = find_best_matches(
+        anon, df_query, secret_column, column_classifications, max_num_anon_datasets=2
+    )
+
+    assert all_secrets == ['A', 'C']
+    assert avg_dist == 0.0
+
+def test_find_best_matches_multiple_anon_datasets_more_than_max():
+
+    df1 = pd.DataFrame({
+        'Age': [25],
+        'Gender': ['Male'],
+        'Secret': ['A']
+    })
+    df2 = pd.DataFrame({
+        'Age': [25],
+        'Gender': ['Male'],
+        'Secret': ['B']
+    })
+    df3 = pd.DataFrame({
+        'Age': [25],
+        'Gender': ['Male'],
+        'Secret': ['C']
+    })
+    anon = [df1, df2, df3]
+
+    df_query = pd.DataFrame({
+        'Age': [25],
+        'Gender': ['Male']
+    })
+
+    column_classifications = {
+        'Age': 'continuous',
+        'Gender': 'categorical'
+    }
+    secret_column = 'Secret'
+
+    avg_dist, all_secrets = find_best_matches(
+        anon, df_query, secret_column, column_classifications, max_num_anon_datasets=2
+    )
+
+    # All three have the same min distance: Gender freq=1, n=1, match_dist=1/(2*1)=0.5, Age is exact match (0)
+    # Distance: (0+0.5)/2=0.25 for all, so all are included
+    assert all_secrets == ['A', 'B', 'C']
+    assert avg_dist == 0.0
+
+def test_find_best_matches_multiple_anon_datasets_fill_to_max():
+    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
+
+    df1 = pd.DataFrame({
+        'Age': [26],
+        'Gender': ['Male'],
+        'Secret': ['A']
+    })
+    df2 = pd.DataFrame({
+        'Age': [25],
+        'Gender': ['Male'],
+        'Secret': ['B']
+    })
+    df3 = pd.DataFrame({
+        'Age': [35],
+        'Gender': ['Female'],
+        'Secret': ['C']
+    })
+    anon = [df1, df2, df3]
+
+    df_query = pd.DataFrame({
+        'Age': [26],
+        'Gender': ['Male']
+    })
+
+    column_classifications = {
+        'Age': 'continuous',
+        'Gender': 'categorical'
+    }
+    secret_column = 'Secret'
+
+    avg_dist, all_secrets = find_best_matches(
+        anon, df_query, secret_column, column_classifications, max_num_anon_datasets=2
+    )
+
+    assert all_secrets == ['A', 'B']
+    assert avg_dist == pytest.approx(0.025, 0.01)
+
+def test_find_best_matches_multiple_anon_datasets_no_match():
+    from anonymity_loss_coefficient.utils.matching_routines import find_best_matches
+
+    df1 = pd.DataFrame({
+        'Age': [25],
+        'Gender': ['Male']
+    })
+    df2 = pd.DataFrame({
+        'Age': [30],
+        'Gender': ['Female']
+    })
+    anon = [df1, df2]
+
+    df_query = pd.DataFrame({
+        'Age': [25],
+        'Gender': ['Male']
+    })
+
+    column_classifications = {
+        'Age': 'continuous',
+        'Gender': 'categorical'
+    }
+    secret_column = 'Secret'
+
+    avg_dist, all_secrets = find_best_matches(
+        anon, df_query, secret_column, column_classifications, max_num_anon_datasets=2
+    )
+
+    assert all_secrets == []
+    assert avg_dist == 1.0
