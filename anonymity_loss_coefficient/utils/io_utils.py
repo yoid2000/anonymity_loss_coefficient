@@ -64,7 +64,7 @@ def prepare_anon_list(dir_path: str,
                       secret_column: Optional[str] = None,
                       known_columns: Optional[list[str]] = None,
                       force_feather_save = False,
-                      prevent_feather_save = False) -> list[pd.DataFrame]:
+                      prevent_feather_save = False) -> tuple[list[pd.DataFrame], int]:
     """
     Reads in the CSV and Parquet files from dir_path and returns them as a list of dataframes.
 
@@ -87,18 +87,19 @@ def prepare_anon_list(dir_path: str,
         # throw an exception
         raise ValueError(f"Error: {dir_path} does not exist or is not a directory")
     anon = []
+    num_skipped = 0
     for file in os.listdir(dir_path):
         if file.endswith('.csv') or file.endswith('.parquet'):
             file_path = os.path.join(dir_path, file)
             df = read_table(file_path)
             # Check if df_candidates has the secret column and at least one known column
             if secret_column is not None and secret_column not in df.columns:
-                print(f"Skipping {file_path} because it does not contain the secret column '{secret_column}'")
+                num_skipped += 1
                 del df
                 continue
             if known_columns is not None and not any(col in df.columns for col in known_columns):
-                print(f"Skipping {file_path} because it does not contain any of the known columns {known_columns}")
+                num_skipped += 1
                 del df
                 continue
             anon.append(df)
-    return anon
+    return anon, num_skipped
