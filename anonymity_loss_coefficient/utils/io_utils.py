@@ -20,7 +20,7 @@ def read_csv(file_path: str) -> pd.DataFrame:
         return df
     except MemoryError:
         # Propagate MemoryError without printing/logging
-        raise RuntimeError(f"MemoryError while reading {file_path} with encoding {encoding}")
+        raise RuntimeError(f"MemoryError while reading {file_path}")
     except Exception as e:
         raise RuntimeError(f"Error reading {file_path} with encoding {encoding}: {e}")
 
@@ -39,7 +39,7 @@ def read_parquet(file_path: str) -> pd.DataFrame:
         return df
     except MemoryError:
         # Propagate MemoryError without printing/logging
-        raise RuntimeError(f"MemoryError while reading {file_path} with encoding {encoding}")
+        raise RuntimeError(f"MemoryError while reading {file_path}")
     except Exception as e:
         raise RuntimeError(f"Error reading {file_path}: {e}")
 
@@ -87,15 +87,18 @@ def prepare_anon_list(dir_path: str,
         # throw an exception
         raise ValueError(f"Error: {dir_path} does not exist or is not a directory")
     anon = []
-    save_as_feather = False
     for file in os.listdir(dir_path):
         if file.endswith('.csv') or file.endswith('.parquet'):
             file_path = os.path.join(dir_path, file)
             df = read_table(file_path)
             # Check if df_candidates has the secret column and at least one known column
             if secret_column is not None and secret_column not in df.columns:
+                print(f"Skipping {file_path} because it does not contain the secret column '{secret_column}'")
+                del df
                 continue
             if known_columns is not None and not any(col in df.columns for col in known_columns):
+                print(f"Skipping {file_path} because it does not contain any of the known columns {known_columns}")
+                del df
                 continue
             anon.append(df)
     return anon
