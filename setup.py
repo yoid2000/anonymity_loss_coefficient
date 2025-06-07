@@ -18,6 +18,9 @@ setup(
         "pyarrow>=20.0.0",
         "fastparquet>=2024.1.0",
         "charset_normalizer>=3.0.0",
+        "xgboost>=1.7.0",
+        "lightgbm>=4.0.0",
+        "catboost>=1.2.0",
     ],
     classifiers=[
         'Programming Language :: Python :: 3',

@@ -1,10 +1,13 @@
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Union, Any, Optional
+import warnings
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import KBinsDiscretizer
-import warnings
 import gc
+# The following to suppress warnings from loky about CPU count
+import os
+os.environ["LOKY_MAX_CPU_COUNT"] = "8"  # Replace 8 with your number of logical cores
 
 class DataFiles:
     def __init__(self,
@@ -136,7 +139,6 @@ class DataFiles:
             # TODO probably delete this
             del self.orig
             del self.cntl
-            print("Garbage collecting")
             gc.collect()
         self.cntl = self.orig_all.iloc[row_index:row_index + self.cntl_size]
         # Shuffle the control data to ensure randomness

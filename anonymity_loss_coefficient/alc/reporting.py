@@ -112,6 +112,7 @@ class Reporter():
                                   score_info: List[Dict],
                                   halt_code: str,
                                   elapsed_time: float,
+                                  model_name: str,
                                   alcp: ALCParams) -> List[Dict]:
         # self.list_results contains the results of the latest attack only
         df_in = pd.DataFrame(self.list_results)
@@ -133,6 +134,7 @@ class Reporter():
             score['attack_count'] = attack_count
             score['halt_code'] = halt_code
             score['elapsed_time'] = elapsed_time
+            score['model_name'] = model_name
             for group_name, param, value in alcp.iter_params():
                 score[f'{group_name}_{param}'] = value
             rows.append(score)
@@ -165,12 +167,13 @@ class Reporter():
                             score_info: List[Dict],
                             halt_code: str,
                             elapsed_time: float,
+                            model_name: str,
                             alcp: ALCParams) -> None:
         if len(self.list_results) == 0:
             self.logger.warning("Warning: No results to consolidate.")
             return
         # move the results from the list to a dataframe
-        list_secret_known_results = self._alc_per_secret_and_known(score_info, halt_code, elapsed_time, alcp)
+        list_secret_known_results = self._alc_per_secret_and_known(score_info, halt_code, elapsed_time, model_name, alcp)
         # At this point, self.list_results, and list_secret_known_results
         # contain the results of the latest attack only
         self.list_results_done += self.list_results

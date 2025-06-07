@@ -99,6 +99,7 @@ class ALCManager:
             recall_adjust_min_intercept=self.alcp.alc.recall_adjust_min_intercept,
             recall_adjust_strength=self.alcp.alc.recall_adjust_strength,
         )
+        self.model_name = None
         self.random_state = random_state
         self.max_score_interval = self.alcp.si.max_score_interval
         self.halt_thresh_low = self.alcp.alcm.halt_thresh_low
@@ -226,7 +227,7 @@ class ALCManager:
                 self.halt_info.update({'elapsed_time': elapsed_time})
                 if self.halt_info['halted'] is True:
                     self.attack_in_progress = False
-                    self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.alcp)
+                    self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.model_name, self.alcp)
                     return
             is_assigned = self._next_cntl_and_build_model()
             if is_assigned is False:
@@ -493,7 +494,8 @@ class ALCManager:
         if is_assigned is False:
             raise ValueError("Error: Control block initialization failed")
         df = self.df.orig
-        self.base_pred.build_model(df, known_columns, secret_column, self.get_column_classification_dict(), self.random_state)
+        self.model_name = self.base_pred.select_model(self.df.orig_all, known_columns, secret_column, self.get_column_classification_dict(), self.random_state)
+        self.base_pred.build_model(df, self.random_state)
         if self.prior_experiment_swap_fraction > 0:
             # This is purely for experimentation and should not be used otherwise
             # self.df.orig contains the sampled original data used for baseline
