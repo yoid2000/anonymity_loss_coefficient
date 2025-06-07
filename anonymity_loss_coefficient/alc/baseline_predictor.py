@@ -3,7 +3,8 @@ from typing import Optional, List, Any, Tuple, Dict
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import OneHotEncoder
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.metrics import make_scorer, log_loss
 import numpy as np
 
 try:
@@ -41,16 +42,14 @@ class BaselinePredictor:
         known_columns: List[str],
         secret_column: str,
         column_classifications: Dict[str, str],
-        random_state: Optional[int] = str
+        random_state: Optional[int] = None
     ) -> None:
         self.known_columns = known_columns
         self.secret_column = secret_column
 
-        # Identify categorical and continuous columns
         self.categorical_columns = [col for col in self.known_columns if column_classifications.get(col) == 'categorical']
         self.continuous_columns = [col for col in self.known_columns if column_classifications.get(col) == 'continuous']
 
-        # One-hot encode categorical columns for all models except CatBoost and LGBM (if available)
         if self.categorical_columns:
             self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
             X_cat = self.encoder.fit_transform(df[self.categorical_columns])
@@ -61,13 +60,22 @@ class BaselinePredictor:
         X_cont = df[self.continuous_columns].values if self.continuous_columns else np.empty((len(df), 0))
         X = np.hstack([X_cont, X_cat])
         y = df[self.secret_column].values.ravel()
-        if y.dtype == object:
-            try:
-                y = y.astype(int)
-            except Exception:
-                y = y.astype(str)
+        classes = np.unique(y)
 
-        # Build ensemble of models
+        def log_loss_with_labels(y_true, y_pred_proba, **kwargs):
+            # Only score if all classes are present and y_pred_proba is 2D
+            if y_pred_proba.ndim != 2 or y_pred_proba.shape[1] != len(classes):
+                return np.nan
+            return log_loss(y_true, y_pred_proba, labels=classes)
+
+        log_loss_scorer = make_scorer(
+            log_loss_with_labels,
+            greater_is_better=False,
+            needs_proba=True
+        )
+
+        cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=random_state)
+
         models = [
             ("RandomForest", RandomForestClassifier(
                 random_state=random_state,
@@ -99,6 +107,7 @@ class BaselinePredictor:
                 random_state=random_state
             )),
         ]
+        # Add XGB, LGBM, CatBoost as before if available...
         if XGBClassifier is not None:
             models.append(("XGB", XGBClassifier(
                 eval_metric='logloss',
@@ -121,29 +130,27 @@ class BaselinePredictor:
         best_model_name = None
 
         for name, model in models:
-            # For CatBoost and LGBM, use original df with categorical columns as strings
-            if name == "CatBoost" and CatBoostClassifier is not None:
-                X_cb = df[self.known_columns]
-                try:
-                    scores = cross_val_score(model, X_cb, y, cv=3, scoring='neg_log_loss')
-                except Exception:
-                    continue
-            elif name == "LGBM" and LGBMClassifier is not None:
-                X_lgbm = df[self.known_columns]
-                try:
-                    scores = cross_val_score(model, X_lgbm, y, cv=3, scoring='neg_log_loss')
-                except Exception:
-                    continue
-            else:
-                try:
-                    scores = cross_val_score(model, X, y, cv=3, scoring='neg_log_loss')
-                except Exception:
-                    continue
-            mean_score = scores.mean()
-            if mean_score > best_score:
-                best_score = mean_score
-                best_model = model
-                best_model_name = name
+            try:
+                if name in ["CatBoost", "LGBM"]:
+                    # Use DataFrame with column names for these models
+                    X_cv = df[self.known_columns]
+                else:
+                    X_cv = X
+                scores = cross_val_score(model, X_cv, y, cv=cv, scoring=log_loss_scorer)
+                valid_scores = scores[~np.isnan(scores)]
+                if len(valid_scores) == 0:
+                    continue  # Skip models with all nan scores
+                mean_score = valid_scores.mean()
+                if mean_score > best_score:
+                    best_score = mean_score
+                    best_model = model
+                    best_model_name = name
+            except Exception:
+                continue  # Skip models that error out
+
+        # Fallback: If no model was selected, use the first model in the list
+        if best_model is None:
+            best_model_name, best_model = models[0]
 
         self.selected_model = best_model
         return best_model_name
@@ -190,6 +197,10 @@ class BaselinePredictor:
         model_name = type(self.model).__name__
 
         if model_name in ["CatBoostClassifier", "LGBMClassifier"]:
+            print(f"******************* Predicting with model: {model_name}")
+            # Ensure df_row is a DataFrame with the correct columns
+            if not isinstance(df_row, pd.DataFrame):
+                df_row = pd.DataFrame([df_row], columns=self.known_columns)
             X = df_row[self.known_columns]
         else:
             if self.categorical_columns:
