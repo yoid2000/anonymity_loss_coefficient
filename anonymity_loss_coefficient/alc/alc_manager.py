@@ -493,7 +493,7 @@ class ALCManager:
         if is_assigned is False:
             raise ValueError("Error: Control block initialization failed")
         df = self.df.orig
-        self.base_pred.build_model(df, known_columns, secret_column, self.random_state)
+        self.base_pred.build_model(df, known_columns, secret_column, self.get_column_classification_dict(), self.random_state)
         if self.prior_experiment_swap_fraction > 0:
             # This is purely for experimentation and should not be used otherwise
             # self.df.orig contains the sampled original data used for baseline
