@@ -26,7 +26,8 @@ class BaselinePredictor:
         self.encoder = None
         self.categorical_columns = []
         self.continuous_columns = []
-        self.selected_model = None
+        self.selected_model_class = None
+        self.selected_model_params = None
 
     def select_model(
         self,
@@ -112,8 +113,10 @@ class BaselinePredictor:
 
 
         best_score = -np.inf
-        best_model = None
         best_model_name = None
+        best_model_class = None
+        best_model_params = None
+
 
         for name, model in models:
             try:
@@ -124,16 +127,21 @@ class BaselinePredictor:
                 mean_score = valid_scores.mean()
                 if mean_score > best_score:
                     best_score = mean_score
-                    best_model = model
+                    best_model_class = type(model)
+                    best_model_params = model.get_params()
                     best_model_name = name
             except Exception:
                 continue  # Skip models that error out
 
-        # Fallback: If no model was selected, use the first model in the list
-        if best_model is None:
-            best_model_name, best_model = models[0]
 
-        self.selected_model = best_model
+        # Fallback: If no model was selected, use the first model in the list
+        if best_model_class is None:
+            best_model_name, default_model = models[0]
+            best_model_class = type(default_model)
+            best_model_params = default_model.get_params()
+
+        self.selected_model_class = best_model_class
+        self.selected_model_params = best_model_params
         return best_model_name
 
     def build_model(
@@ -141,10 +149,14 @@ class BaselinePredictor:
         df: pd.DataFrame,
         random_state: Optional[int] = None
     ) -> None:
-        if self.selected_model is None:
+        if not hasattr(self, "selected_model_class") or self.selected_model_class is None:
             raise ValueError("No model has been selected. Call select_model() first.")
 
-        model_name = type(self.selected_model).__name__
+        model_class = self.selected_model_class
+        model_params = self.selected_model_params.copy()
+        if random_state is not None and "random_state" in model_params:
+            model_params["random_state"] = random_state
+        self.model = model_class(**model_params)
 
         if self.categorical_columns:
             if self.encoder is None:
@@ -164,7 +176,6 @@ class BaselinePredictor:
             except Exception:
                 y = y.astype(str)
 
-        self.model = self.selected_model
         self.model.fit(X, y)
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
