@@ -11,14 +11,6 @@ try:
     from xgboost import XGBClassifier
 except ImportError:
     XGBClassifier = None
-try:
-    from lightgbm import LGBMClassifier
-except ImportError:
-    LGBMClassifier = None
-try:
-    from catboost import CatBoostClassifier
-except ImportError:
-    CatBoostClassifier = None
 
 # The following to suppress warnings from loky about CPU count
 import os
@@ -107,21 +99,9 @@ class BaselinePredictor:
                 random_state=random_state
             )),
         ]
-        # Add XGB, LGBM, CatBoost as before if available...
         if XGBClassifier is not None:
             models.append(("XGB", XGBClassifier(
                 eval_metric='logloss',
-                random_state=random_state
-            )))
-        if LGBMClassifier is not None:
-            models.append(("LGBM", LGBMClassifier(
-                verbose=-1,
-                random_state=random_state
-            )))
-        if CatBoostClassifier is not None:
-            models.append(("CatBoost", CatBoostClassifier(
-                logging_level="Silent",
-                verbose=0,
                 random_state=random_state
             )))
 
@@ -131,12 +111,7 @@ class BaselinePredictor:
 
         for name, model in models:
             try:
-                if name in ["CatBoost", "LGBM"]:
-                    # Use DataFrame with column names for these models
-                    X_cv = df[self.known_columns]
-                else:
-                    X_cv = X
-                scores = cross_val_score(model, X_cv, y, cv=cv, scoring=log_loss_scorer)
+                scores = cross_val_score(model, X, y, cv=cv, scoring=log_loss_scorer)
                 valid_scores = scores[~np.isnan(scores)]
                 if len(valid_scores) == 0:
                     continue  # Skip models with all nan scores
@@ -160,25 +135,21 @@ class BaselinePredictor:
         df: pd.DataFrame,
         random_state: Optional[int] = None
     ) -> None:
-        # One-hot encode categorical columns for all models except CatBoost and LGBM
         if self.selected_model is None:
             raise ValueError("No model has been selected. Call select_model() first.")
 
         model_name = type(self.selected_model).__name__
 
-        if model_name in ["CatBoostClassifier", "LGBMClassifier"]:
-            X = df[self.known_columns]
-        else:
-            if self.categorical_columns:
-                if self.encoder is None:
-                    self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
-                    X_cat = self.encoder.fit_transform(df[self.categorical_columns])
-                else:
-                    X_cat = self.encoder.transform(df[self.categorical_columns])
+        if self.categorical_columns:
+            if self.encoder is None:
+                self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+                X_cat = self.encoder.fit_transform(df[self.categorical_columns])
             else:
-                X_cat = np.empty((len(df), 0))
-            X_cont = df[self.continuous_columns].values if self.continuous_columns else np.empty((len(df), 0))
-            X = np.hstack([X_cont, X_cat])
+                X_cat = self.encoder.transform(df[self.categorical_columns])
+        else:
+            X_cat = np.empty((len(df), 0))
+        X_cont = df[self.continuous_columns].values if self.continuous_columns else np.empty((len(df), 0))
+        X = np.hstack([X_cont, X_cat])
 
         y = df[self.secret_column].values.ravel()
         if y.dtype == object:
@@ -196,19 +167,12 @@ class BaselinePredictor:
 
         model_name = type(self.model).__name__
 
-        if model_name in ["CatBoostClassifier", "LGBMClassifier"]:
-            print(f"******************* Predicting with model: {model_name}")
-            # Ensure df_row is a DataFrame with the correct columns
-            if not isinstance(df_row, pd.DataFrame):
-                df_row = pd.DataFrame([df_row], columns=self.known_columns)
-            X = df_row[self.known_columns]
+        if self.categorical_columns:
+            X_cat = self.encoder.transform(df_row[self.categorical_columns])
         else:
-            if self.categorical_columns:
-                X_cat = self.encoder.transform(df_row[self.categorical_columns])
-            else:
-                X_cat = np.empty((len(df_row), 0))
-            X_cont = df_row[self.continuous_columns].values if self.continuous_columns else np.empty((len(df_row), 0))
-            X = np.hstack([X_cont, X_cat])
+            X_cat = np.empty((len(df_row), 0))
+        X_cont = df_row[self.continuous_columns].values if self.continuous_columns else np.empty((len(df_row), 0))
+        X = np.hstack([X_cont, X_cat])
 
         prediction = self.model.predict(X)[0]
         if hasattr(self.model, "predict_proba"):
