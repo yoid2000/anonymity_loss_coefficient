@@ -54,20 +54,6 @@ class BaselinePredictor:
         y = df[self.secret_column].values.ravel()
         classes = np.unique(y)
 
-        def log_loss_with_labels(y_true, y_pred_proba, **kwargs):
-            # Only score if all classes are present and y_pred_proba is 2D
-            if y_pred_proba.ndim != 2 or y_pred_proba.shape[1] != len(classes):
-                return np.nan
-            return log_loss(y_true, y_pred_proba, labels=classes)
-
-        log_loss_scorer = make_scorer(
-            log_loss_with_labels,
-            greater_is_better=False,
-            needs_proba=True
-        )
-
-        cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=random_state)
-
         models = [
             ("RandomForest", RandomForestClassifier(
                 random_state=random_state,
@@ -104,6 +90,26 @@ class BaselinePredictor:
                 eval_metric='logloss',
                 random_state=random_state
             )))
+
+        if len(classes) < 2:
+            best_model_name, best_model = models[0]
+            self.selected_model = best_model
+            return best_model_name
+
+        def log_loss_with_labels(y_true, y_pred_proba, **kwargs):
+            # Only score if all classes are present and y_pred_proba is 2D
+            if y_pred_proba.ndim != 2 or y_pred_proba.shape[1] != len(classes):
+                return np.nan
+            return log_loss(y_true, y_pred_proba, labels=classes)
+
+        log_loss_scorer = make_scorer(
+            log_loss_with_labels,
+            greater_is_better=False,
+            needs_proba=True
+        )
+
+        cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=random_state)
+
 
         best_score = -np.inf
         best_model = None
