@@ -235,7 +235,7 @@ class ALCManager:
                 elapsed_time = round(end_time - self.start_time, 4)
                 self.halt_info = {'halted': True, 'reason': 'exhausted all rows',  'num_attacks': num_attacks, 'halt_code': 'exhausted', 'elapsed_time': elapsed_time}
                 self.attack_in_progress = False
-                self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.alcp)
+                self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.model_name, self.alcp)
                 return
 
     def abstention(self) -> bool:
