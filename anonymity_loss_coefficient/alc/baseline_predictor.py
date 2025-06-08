@@ -7,11 +7,6 @@ from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.metrics import make_scorer, log_loss
 import numpy as np
 
-try:
-    from xgboost import XGBClassifier
-except ImportError:
-    XGBClassifier = None
-
 # The following to suppress warnings from loky about CPU count
 import os
 os.environ["LOKY_MAX_CPU_COUNT"] = "4" 
@@ -86,12 +81,6 @@ class BaselinePredictor:
                 random_state=random_state
             )),
         ]
-        if XGBClassifier is not None:
-            models.append(("XGB", XGBClassifier(
-                eval_metric='logloss',
-                random_state=random_state
-            )))
-
         if len(classes) < 2:
             best_model_name, best_model = models[0]
             self.selected_model = best_model
@@ -111,12 +100,10 @@ class BaselinePredictor:
 
         cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=random_state)
 
-
         best_score = -np.inf
         best_model_name = None
         best_model_class = None
         best_model_params = None
-
 
         for name, model in models:
             try:
@@ -132,7 +119,6 @@ class BaselinePredictor:
                     best_model_name = name
             except Exception:
                 continue  # Skip models that error out
-
 
         # Fallback: If no model was selected, use the first model in the list
         if best_model_class is None:
