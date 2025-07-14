@@ -604,6 +604,7 @@ def debug_baseline_predictor(df, known_columns, secret_column, predictor):
     print(f"\n1. DATA QUALITY:")
     print(f"   Dataset shape: {df.shape}")
     print(f"   Target column '{secret_column}' unique values: {df[secret_column].nunique()}")
+    print(f"   Target dtype: {df[secret_column].dtype}")
     print(f"   Target distribution:\n{df[secret_column].value_counts()}")
     print(f"   Missing values: {df[known_columns + [secret_column]].isnull().sum().sum()}")
     
@@ -652,32 +653,23 @@ def debug_baseline_predictor(df, known_columns, secret_column, predictor):
     if zero_var_count > 0:
         print(f"   WARNING: {zero_var_count} features have no variance!")
     
-    # 6. Test prediction performance
-    print(f"\n6. PREDICTION PERFORMANCE:")
-    if len(df) > 10:  # Only if we have enough data
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, df[secret_column], test_size=0.3, random_state=42, stratify=df[secret_column]
-        )
+    # 6. Check model state (DON'T refit the model)
+    print(f"\n6. MODEL STATE:")
+    if predictor.model is not None:
+        print(f"   Model type: {type(predictor.model).__name__}")
+        print(f"   Model classes: {predictor.model.classes_}")
+        print(f"   Number of model classes: {len(predictor.model.classes_)}")
         
-        predictor.model.fit(X_train, y_train)
-        train_score = predictor.model.score(X_train, y_train)
-        test_score = predictor.model.score(X_test, y_test)
-        
-        print(f"   Training accuracy: {train_score:.4f}")
-        print(f"   Test accuracy: {test_score:.4f}")
-        
-        # Check if model is just predicting majority class
-        y_pred = predictor.model.predict(X_test)
-        majority_class = df[secret_column].mode()[0]
-        majority_baseline = np.mean(y_test == majority_class)
-        print(f"   Majority class baseline: {majority_baseline:.4f}")
-        
-        if test_score <= majority_baseline + 0.01:
-            print(f"   WARNING: Model is barely better than majority class!")
-            
-        print(f"\n   Classification Report:")
-        print(classification_report(y_test, y_pred))
-
+        # Test a single prediction to see if the model works
+        try:
+            sample_row = df[known_columns].iloc[[0]]
+            prediction, confidence = predictor.predict(sample_row)
+            print(f"   Sample prediction: {prediction} (confidence: {confidence})")
+            print(f"   ✅ Model prediction works!")
+        except Exception as e:
+            print(f"   ❌ Model prediction failed: {e}")
+    else:
+        print(f"   ❌ Model is None - not yet built")
 # Usage in your code:
 # debug_baseline_predictor(df, known_columns, secret_column, predictor)
 

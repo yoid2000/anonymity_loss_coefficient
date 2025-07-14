@@ -146,6 +146,7 @@ class BaselinePredictor:
         1. 1-1 correlation with target (perfect mapping)
         2. Monotonic relationship with target
         3. High correlation when treated as continuous vs categorical
+        4. Too many distinct values (>100)
         """
         if not self.categorical_columns or self.secret_column not in df.columns:
             return
@@ -172,6 +173,11 @@ class BaselinePredictor:
             # Case 3: Better correlation as continuous than categorical
             if self._better_as_continuous(feature_values, target_values):
                 columns_to_reclassify.append((cat_col, "stronger continuous correlation"))
+                continue
+                
+            # Case 4: Too many distinct values for categorical treatment
+            if feature_values.nunique() > 100:
+                columns_to_reclassify.append((cat_col, "too many distinct values (>100)"))
                 continue
                 
         # Reclassify identified columns as continuous
