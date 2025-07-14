@@ -497,9 +497,9 @@ class ALCManager:
         self.model_name = self.base_pred.select_model(self.df.orig_all, known_columns, secret_column, self.get_column_classification_dict(), self.random_state)
         self.base_pred.build_model(df, self.random_state)
         # ######### debug stuff #########
-        debug_baseline_predictor(df, known_columns, 'education', self.base_pred.model)
+        debug_baseline_predictor(df, known_columns, 'education', self.base_pred)
         analyze_education_data(df)
-        check_common_issues(df, self.base_pred.model)
+        check_common_issues(df, self.base_pred)
         # ######### end debug stuff #########
         if self.prior_experiment_swap_fraction > 0:
             # This is purely for experimentation and should not be used otherwise
