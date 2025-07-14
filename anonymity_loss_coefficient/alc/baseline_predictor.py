@@ -5,6 +5,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.metrics import make_scorer, log_loss
+import logging
 import numpy as np
 
 # The following to suppress warnings from loky about CPU count
@@ -14,7 +15,8 @@ os.environ["LOKY_MAX_CPU_COUNT"] = "4"
 class BaselinePredictor:
     '''
     '''
-    def __init__(self) -> None:
+    def __init__(self, logger: logging.Logger) -> None:
+        self.logger = logger
         self.model = None
         self.known_columns = None
         self.secret_column = None
@@ -128,6 +130,9 @@ class BaselinePredictor:
             best_model_name, default_model = models[0]
             best_model_class = type(default_model)
             best_model_params = default_model.get_params()
+            self.logger.info(f"No model selected based on validation scores. Using default model: {best_model_name}")
+        else:
+            self.logger.info(f"Selected model: {best_model_name} with score: {best_score:.4f}")
 
         self.selected_model_class = best_model_class
         self.selected_model_params = best_model_params
@@ -171,6 +176,7 @@ class BaselinePredictor:
                 
         # Reclassify identified columns as continuous
         for col, reason in columns_to_reclassify:
+            self.logger.info(f"Reclassifying column '{col}' as continuous because: {reason}")
             self.categorical_columns.remove(col)
             if col not in self.continuous_columns:
                 self.continuous_columns.append(col)

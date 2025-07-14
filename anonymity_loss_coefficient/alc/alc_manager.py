@@ -93,7 +93,7 @@ class ALCManager:
         if self.logger is None:
             logger_path = os.path.join(results_path, 'alc_manager.log')
             self.logger = setup_logging(log_file_path=logger_path)
-        self.base_pred = BaselinePredictor()
+        self.base_pred = BaselinePredictor(logger=self.logger)
         self.alc = AnonymityLossCoefficient(
             prc_abs_weight=self.alcp.alc.prc_abs_weight,
             recall_adjust_min_intercept=self.alcp.alc.recall_adjust_min_intercept,
