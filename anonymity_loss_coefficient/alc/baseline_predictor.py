@@ -275,6 +275,7 @@ class BaselinePredictor:
             model_params["random_state"] = random_state
         self.model = model_class(**model_params)
 
+        self.logger.info(f"Building model with categorical columns: {self.categorical_columns}, continuous columns: {self.continuous_columns}")
         if self.categorical_columns:
             if self.encoder is None:
                 self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
