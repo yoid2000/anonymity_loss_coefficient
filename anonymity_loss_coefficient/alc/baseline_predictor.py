@@ -12,6 +12,43 @@ import numpy as np
 import os
 os.environ["LOKY_MAX_CPU_COUNT"] = "4" 
 
+class OneToOnePredictor:
+    """
+    A predictor for features that have a 1-to-1 correspondence with the target.
+    """
+    def __init__(self, df: pd.DataFrame, feature: str, target: str) -> None:
+        """
+        Initialize the predictor with a mapping from feature values to target values.
+        
+        Args:
+            df: DataFrame containing the feature and target columns
+            feature: Name of the feature column
+            target: Name of the target column
+        """
+        self.feature_name = feature
+        self.target_name = target
+        
+        # Create the mapping from feature values to target values
+        self.mapping = dict(zip(df[feature], df[target]))
+        
+    def predict(self, feature_value: Any) -> Any:
+        """
+        Predict the target value for a given feature value.
+        
+        Args:
+            feature_value: A value from the feature column
+            
+        Returns:
+            The corresponding target value
+            
+        Raises:
+            KeyError: If the feature value is not found in the mapping
+        """
+        if feature_value not in self.mapping:
+            raise KeyError(f"Feature value '{feature_value}' not found in mapping")
+        
+        return self.mapping[feature_value]
+
 class BaselinePredictor:
     '''
     '''
@@ -25,6 +62,7 @@ class BaselinePredictor:
         self.continuous_columns = []
         self.selected_model_class = None
         self.selected_model_params = None
+        self.otop = None
 
     def select_model(
         self,
@@ -41,7 +79,13 @@ class BaselinePredictor:
         self.continuous_columns = [col for col in self.known_columns if column_classifications.get(col) == 'continuous']
 
         # Detect categorical features with 1-1 correlation to target and reclassify as continuous
-        self._detect_and_reclassify_correlated_categoricals(df)
+        otop = self._detect_and_reclassify_correlated_categoricals(df)
+        
+        # If a one-to-one predictor is found, use it instead of other models
+        if otop is not None:
+            self.otop = otop
+            self.logger.info("Using OneToOnePredictor due to perfect 1-1 correlation")
+            return "OneToOnePredictor"
 
         if self.categorical_columns:
             self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
@@ -138,7 +182,7 @@ class BaselinePredictor:
         self.selected_model_params = best_model_params
         return best_model_name
 
-    def _detect_and_reclassify_correlated_categoricals(self, df: pd.DataFrame) -> None:
+    def _detect_and_reclassify_correlated_categoricals(self, df: pd.DataFrame) -> Optional[OneToOnePredictor]:
         """
         Detect categorical features that should be treated as continuous and reclassify them.
         
@@ -147,12 +191,16 @@ class BaselinePredictor:
         2. Monotonic relationship with target
         3. High correlation when treated as continuous vs categorical
         4. Too many distinct values (>100)
+        
+        Returns:
+            OneToOnePredictor if a 1-to-1 relationship is found, None otherwise
         """
-        if not self.categorical_columns or self.secret_column not in df.columns:
-            return
+        if not self.categorical_columns or not isinstance(self.secret_column, str) or self.secret_column not in df.columns:
+            return None
             
         target_values = df[self.secret_column]
         columns_to_reclassify = []
+        otop = None
         
         for cat_col in self.categorical_columns[:]:  # Create a copy to iterate over
             if cat_col not in df.columns:
@@ -163,6 +211,9 @@ class BaselinePredictor:
             # Case 1: 1-1 correlation between categorical feature and target
             if self._has_one_to_one_correlation(feature_values, target_values):
                 columns_to_reclassify.append((cat_col, "1-1 correlation with target"))
+                # Create OneToOnePredictor for the first 1-to-1 relationship found
+                if otop is None:
+                    otop = OneToOnePredictor(df, feature=cat_col, target=self.secret_column)
                 continue
                     
             # Case 2: Monotonic relationship with target when treated as continuous
@@ -187,6 +238,8 @@ class BaselinePredictor:
             if col not in self.continuous_columns:
                 self.continuous_columns.append(col)
                 
+        return otop
+
     def _has_one_to_one_correlation(self, feature_series: pd.Series, target_series: pd.Series) -> bool:
         """Check if there's a 1-1 correlation between feature and target."""
         # Create a mapping from feature values to target values
@@ -272,6 +325,10 @@ class BaselinePredictor:
         df: pd.DataFrame,
         random_state: Optional[int] = None
     ) -> None:
+        # If using one-to-one predictor, no model building needed
+        if self.otop is not None:
+            return
+            
         if not hasattr(self, "selected_model_class") or self.selected_model_class is None:
             raise ValueError("No model has been selected. Call select_model() first.")
 
@@ -303,6 +360,17 @@ class BaselinePredictor:
         self.model.fit(X, y)
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
+        # Use one-to-one predictor if available
+        if self.otop is not None:
+            feature_value = df_row[self.otop.feature_name].iloc[0]
+            try:
+                prediction = self.otop.predict(feature_value)
+                return prediction, 1.0  # Perfect confidence for 1-1 mapping
+            except KeyError:
+                # If feature value not found, fall back to most common target value
+                # This shouldn't happen in normal cases but provides a safety net
+                raise ValueError(f"Feature value '{feature_value}' not found in one-to-one mapping")
+        
         if self.model is None:
             raise ValueError("Model has not been built yet")
 
