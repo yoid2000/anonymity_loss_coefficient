@@ -187,20 +187,20 @@ class BaselinePredictor:
         Detect categorical features that should be treated as continuous and reclassify them.
         
         Detects several cases:
-        1. 1-1 correlation with target (perfect mapping)
+        1. Near-perfect correlation with target (99%+ mapping accuracy)
         2. Monotonic relationship with target
         3. High correlation when treated as continuous vs categorical
         4. Too many distinct values (>100)
         
         Returns:
-            OneToOnePredictor if a 1-to-1 relationship is found, None otherwise
+            OneToOnePredictor if a near-perfect relationship is found, None otherwise
         """
         if not self.categorical_columns or not isinstance(self.secret_column, str) or self.secret_column not in df.columns:
             return None
             
         target_values = df[self.secret_column]
         columns_to_reclassify = []
-        otop = None
+        otop_candidates = []  # Store (column, correlation_ratio) pairs
         
         for cat_col in self.categorical_columns[:]:  # Create a copy to iterate over
             if cat_col not in df.columns:
@@ -208,12 +208,11 @@ class BaselinePredictor:
                 
             feature_values = df[cat_col]
             
-            # Case 1: 1-1 correlation between categorical feature and target
-            if self._has_one_to_one_correlation(feature_values, target_values):
-                columns_to_reclassify.append((cat_col, "1-1 correlation with target"))
-                # Create OneToOnePredictor for the first 1-to-1 relationship found
-                if otop is None:
-                    otop = OneToOnePredictor(df, feature=cat_col, target=self.secret_column)
+            # Case 1: Near-perfect correlation between categorical feature and target (99%+)
+            correlation_ratio = self._calculate_correlation_ratio(feature_values, target_values)
+            if correlation_ratio >= 0.99:
+                columns_to_reclassify.append((cat_col, f"near-perfect correlation with target ({correlation_ratio:.3f})"))
+                otop_candidates.append((cat_col, correlation_ratio))
                 continue
                     
             # Case 2: Monotonic relationship with target when treated as continuous
@@ -231,6 +230,13 @@ class BaselinePredictor:
                 columns_to_reclassify.append((cat_col, "too many distinct values (>100)"))
                 continue
                 
+        # Select the best one-to-one predictor candidate (highest correlation ratio)
+        otop = None
+        if otop_candidates:
+            best_col, best_ratio = max(otop_candidates, key=lambda x: x[1])
+            otop = OneToOnePredictor(df, feature=best_col, target=self.secret_column)
+            self.logger.info(f"Selected OneToOnePredictor for column '{best_col}' with correlation ratio: {best_ratio:.3f} out of {len(otop_candidates)} candidates")
+                
         # Reclassify identified columns as continuous
         for col, reason in columns_to_reclassify:
             self.logger.info(f"Reclassifying column '{col}' as continuous because: {reason}")
@@ -240,8 +246,38 @@ class BaselinePredictor:
                 
         return otop
 
+    def _calculate_correlation_ratio(self, feature_series: pd.Series, target_series: pd.Series) -> float:
+        """
+        Calculate the correlation ratio between feature and target.
+        
+        Returns the ratio of rows where the feature-target mapping is consistent
+        with the most common mapping for each feature value.
+        """
+        if len(feature_series) == 0:
+            return 0.0
+            
+        # Create a mapping from each feature value to its most common target value
+        feature_to_mode_target = {}
+        df_temp = pd.DataFrame({'feature': feature_series, 'target': target_series})
+        
+        for feat_val in feature_series.unique():
+            target_vals = df_temp[df_temp['feature'] == feat_val]['target']
+            mode_target = target_vals.mode()
+            if len(mode_target) > 0:
+                feature_to_mode_target[feat_val] = mode_target.iloc[0]
+            else:
+                feature_to_mode_target[feat_val] = target_vals.iloc[0]
+        
+        # Count how many rows match the expected mapping
+        matches = 0
+        for feat_val, target_val in zip(feature_series, target_series):
+            if feat_val in feature_to_mode_target and feature_to_mode_target[feat_val] == target_val:
+                matches += 1
+                
+        return matches / len(feature_series)
+
     def _has_one_to_one_correlation(self, feature_series: pd.Series, target_series: pd.Series) -> bool:
-        """Check if there's a 1-1 correlation between feature and target."""
+        """Check if there's a near-perfect 1-1 correlation between feature and target."""
         # Create a mapping from feature values to target values
         feature_to_target = {}
         target_to_feature = {}
