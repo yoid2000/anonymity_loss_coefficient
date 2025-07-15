@@ -189,7 +189,10 @@ class DataFiles:
             transformed_values = encoder.transform(df[col].astype(str))
             # cast to int if the column is bool or datetime
             if pd.api.types.is_bool_dtype(df[col]) or pd.api.types.is_datetime64_any_dtype(df[col]):
-                df[col] = df[col].astype('int64')
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", pd.errors.SettingWithCopyWarning)
+                    warnings.simplefilter("ignore", FutureWarning)
+                    df[col] = df[col].astype('int64')
             df.loc[:, col] = transformed_values.astype(int)
 
 
