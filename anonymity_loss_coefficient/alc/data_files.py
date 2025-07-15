@@ -191,7 +191,7 @@ class DataFiles:
             if pd.api.types.is_bool_dtype(df[col]) or pd.api.types.is_datetime64_any_dtype(df[col]):
                 # Convert and assign in separate steps to change the column dtype
                 converted_values = df[col].astype('int64')
-                df[col] = converted_values
+                df.loc[:, col] = converted_values
             df.loc[:, col] = transformed_values.astype(int)
 
 
