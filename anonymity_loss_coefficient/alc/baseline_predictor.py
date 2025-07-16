@@ -102,30 +102,17 @@ class BaselinePredictor:
             ("RandomForest", RandomForestClassifier(
                 random_state=random_state,
                 n_estimators=100,
-                #max_depth=10,
-                #max_features='sqrt',
-                #min_samples_split=10,
-                #min_samples_leaf=5,
-                #class_weight='balanced',
-                #oob_score=True
             )),
             ("ExtraTrees", ExtraTreesClassifier(
                 random_state=random_state,
                 n_estimators=100,
-                max_depth=10,
-                max_features='sqrt',
-                min_samples_split=10,
-                min_samples_leaf=5,
-                class_weight='balanced'
             )),
             ("HistGB", HistGradientBoostingClassifier(
                 random_state=random_state,
-                max_iter=100,
-                max_depth=10
+                max_iter=500,
             )),
             ("LogisticRegression", LogisticRegression(
-                max_iter=1000,
-                class_weight='balanced',
+                max_iter=5000,
                 random_state=random_state
             )),
         ]
