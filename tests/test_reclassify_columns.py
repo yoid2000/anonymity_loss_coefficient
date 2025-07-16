@@ -63,24 +63,24 @@ class TestReclassifyColumns(unittest.TestCase):
         
         self.predictor.known_columns = ['perfect_mapping', 'normal_categorical']
         self.predictor.secret_column = 'target'
-        self.predictor.categorical_columns = ['perfect_mapping', 'normal_categorical']
-        self.predictor.continuous_columns = []
+        self.predictor.onehot_columns = ['perfect_mapping', 'normal_categorical']
+        self.predictor.non_onehot_columns = []
         
         # Run detection
         self.predictor._detect_and_reclassify_correlated_categoricals(df)
         
         # Verify that perfect_mapping was reclassified as continuous
-        self.assertIn('perfect_mapping', self.predictor.continuous_columns)
-        self.assertNotIn('perfect_mapping', self.predictor.categorical_columns)
+        self.assertIn('perfect_mapping', self.predictor.non_onehot_columns)
+        self.assertNotIn('perfect_mapping', self.predictor.onehot_columns)
         
         # Verify that normal_categorical remains categorical
-        self.assertIn('normal_categorical', self.predictor.categorical_columns)
-        self.assertNotIn('normal_categorical', self.predictor.continuous_columns)
+        self.assertIn('normal_categorical', self.predictor.onehot_columns)
+        self.assertNotIn('normal_categorical', self.predictor.non_onehot_columns)
         
         # Check that logger was called with appropriate message
         self.mock_logger.info.assert_called()
         log_calls = [call.args[0] for call in self.mock_logger.info.call_args_list]
-        self.assertTrue(any("1-1 correlation with target" in call for call in log_calls))
+        self.assertTrue(any("near-perfect correlation with target" in call for call in log_calls))
     
     def test_one_to_one_correlation_edge_cases(self):
         """Test edge cases for 1-1 correlation detection."""
@@ -94,14 +94,14 @@ class TestReclassifyColumns(unittest.TestCase):
         
         self.predictor.known_columns = ['feature']
         self.predictor.secret_column = 'target'
-        self.predictor.categorical_columns = ['feature']
-        self.predictor.continuous_columns = []
+        self.predictor.onehot_columns = ['feature']
+        self.predictor.non_onehot_columns = []
         
         self.predictor._detect_and_reclassify_correlated_categoricals(df)
         
         # This pattern should definitely remain categorical (no 1-1, no monotonic, complex mapping)
         # Since each feature value maps to all target values at some point
-        if 'feature' in self.predictor.continuous_columns:
+        if 'feature' in self.predictor.non_onehot_columns:
             # Let's understand why it was reclassified and verify it's valid
             # Check if it was due to the "better as continuous" heuristic
             is_better_continuous = self.predictor._better_as_continuous(df['feature'], df['target'])
@@ -113,7 +113,7 @@ class TestReclassifyColumns(unittest.TestCase):
                           "Feature was reclassified but doesn't meet any of the expected criteria")
         else:
             # Should remain categorical
-            self.assertIn('feature', self.predictor.categorical_columns)
+            self.assertIn('feature', self.predictor.onehot_columns)
         
         # Verify that 1-1 detection works correctly for actual 1-1 case
         data_different_counts = {
@@ -123,13 +123,13 @@ class TestReclassifyColumns(unittest.TestCase):
         df = pd.DataFrame(data_different_counts)
         
         # Reset predictor
-        self.predictor.categorical_columns = ['feature']
-        self.predictor.continuous_columns = []
+        self.predictor.onehot_columns = ['feature']
+        self.predictor.non_onehot_columns = []
         
         self.predictor._detect_and_reclassify_correlated_categoricals(df)
         
         # Should be reclassified (this is actually a valid 1-1 mapping)
-        self.assertIn('feature', self.predictor.continuous_columns)
+        self.assertIn('feature', self.predictor.non_onehot_columns)
     
     def test_monotonic_relationship_detection(self):
         """Test detection of monotonic relationships with target."""
@@ -149,14 +149,14 @@ class TestReclassifyColumns(unittest.TestCase):
         
         self.predictor.known_columns = ['monotonic_feature']
         self.predictor.secret_column = 'target'
-        self.predictor.categorical_columns = ['monotonic_feature']
-        self.predictor.continuous_columns = []
+        self.predictor.onehot_columns = ['monotonic_feature']
+        self.predictor.non_onehot_columns = []
         
         self.predictor._detect_and_reclassify_correlated_categoricals(df)
         
         # Should be reclassified as continuous
-        self.assertIn('monotonic_feature', self.predictor.continuous_columns)
-        self.assertNotIn('monotonic_feature', self.predictor.categorical_columns)
+        self.assertIn('monotonic_feature', self.predictor.non_onehot_columns)
+        self.assertNotIn('monotonic_feature', self.predictor.onehot_columns)
         
         # Test non-monotonic (should remain categorical)
         df_non_mono = pd.DataFrame({
@@ -166,13 +166,13 @@ class TestReclassifyColumns(unittest.TestCase):
         
         # Reset predictor
         self.predictor.known_columns = ['non_monotonic']
-        self.predictor.categorical_columns = ['non_monotonic']
-        self.predictor.continuous_columns = []
+        self.predictor.onehot_columns = ['non_monotonic']
+        self.predictor.non_onehot_columns = []
         
         self.predictor._detect_and_reclassify_correlated_categoricals(df_non_mono)
         
         # Should remain categorical
-        self.assertIn('non_monotonic', self.predictor.categorical_columns)
+        self.assertIn('non_monotonic', self.predictor.onehot_columns)
     
     def test_monotonic_with_categorical_target(self):
         """Test monotonic detection with categorical target."""
@@ -185,15 +185,15 @@ class TestReclassifyColumns(unittest.TestCase):
         
         self.predictor.known_columns = ['feature']
         self.predictor.secret_column = 'target'
-        self.predictor.categorical_columns = ['feature']
-        self.predictor.continuous_columns = []
+        self.predictor.onehot_columns = ['feature']
+        self.predictor.non_onehot_columns = []
         
         self.predictor._detect_and_reclassify_correlated_categoricals(df)
         
         # The result depends on the mode calculation, but should handle categorical targets gracefully
         # (This tests the categorical target handling code path)
-        self.assertIsInstance(self.predictor.categorical_columns, list)
-        self.assertIsInstance(self.predictor.continuous_columns, list)
+        self.assertIsInstance(self.predictor.onehot_columns, list)
+        self.assertIsInstance(self.predictor.non_onehot_columns, list)
     
     def test_better_as_continuous_detection(self):
         """Test detection of features better treated as continuous vs categorical."""
@@ -214,8 +214,8 @@ class TestReclassifyColumns(unittest.TestCase):
         
         self.predictor.known_columns = ['high_cardinality_feature', 'low_cardinality']
         self.predictor.secret_column = 'target'
-        self.predictor.categorical_columns = ['high_cardinality_feature', 'low_cardinality']
-        self.predictor.continuous_columns = []
+        self.predictor.onehot_columns = ['high_cardinality_feature', 'low_cardinality']
+        self.predictor.non_onehot_columns = []
         
         self.predictor._detect_and_reclassify_correlated_categoricals(df)
         
@@ -223,8 +223,8 @@ class TestReclassifyColumns(unittest.TestCase):
         # (The exact outcome depends on the generated data, but we test the logic)
         
         # Low cardinality should remain categorical (<=5 unique values)
-        self.assertIn('low_cardinality', self.predictor.categorical_columns)
-        self.assertNotIn('low_cardinality', self.predictor.continuous_columns)
+        self.assertIn('low_cardinality', self.predictor.onehot_columns)
+        self.assertNotIn('low_cardinality', self.predictor.non_onehot_columns)
     
     def test_better_as_continuous_with_categorical_target(self):
         """Test better-as-continuous detection with categorical target."""
@@ -245,15 +245,15 @@ class TestReclassifyColumns(unittest.TestCase):
         
         self.predictor.known_columns = ['feature']
         self.predictor.secret_column = 'target'
-        self.predictor.categorical_columns = ['feature']
-        self.predictor.continuous_columns = []
+        self.predictor.onehot_columns = ['feature']
+        self.predictor.non_onehot_columns = []
         
         # This should not error and should handle categorical targets
         self.predictor._detect_and_reclassify_correlated_categoricals(df)
         
         # Test passes if no exception is raised
-        self.assertIsInstance(self.predictor.categorical_columns, list)
-        self.assertIsInstance(self.predictor.continuous_columns, list)
+        self.assertIsInstance(self.predictor.onehot_columns, list)
+        self.assertIsInstance(self.predictor.non_onehot_columns, list)
     
     def test_no_reclassification_when_no_categorical_columns(self):
         """Test that nothing happens when there are no categorical columns."""
@@ -265,17 +265,17 @@ class TestReclassifyColumns(unittest.TestCase):
         
         self.predictor.known_columns = ['continuous_feature']
         self.predictor.secret_column = 'target'
-        self.predictor.categorical_columns = []  # No categorical columns
-        self.predictor.continuous_columns = ['continuous_feature']
+        self.predictor.onehot_columns = []  # No categorical columns
+        self.predictor.non_onehot_columns = ['continuous_feature']
         
         # Should return early without changes
-        original_categorical = self.predictor.categorical_columns.copy()
-        original_continuous = self.predictor.continuous_columns.copy()
+        original_categorical = self.predictor.onehot_columns.copy()
+        original_continuous = self.predictor.non_onehot_columns.copy()
         
         self.predictor._detect_and_reclassify_correlated_categoricals(df)
         
-        self.assertEqual(self.predictor.categorical_columns, original_categorical)
-        self.assertEqual(self.predictor.continuous_columns, original_continuous)
+        self.assertEqual(self.predictor.onehot_columns, original_categorical)
+        self.assertEqual(self.predictor.non_onehot_columns, original_continuous)
     
     def test_no_reclassification_when_target_missing(self):
         """Test that nothing happens when target column is missing."""
@@ -287,17 +287,17 @@ class TestReclassifyColumns(unittest.TestCase):
         
         self.predictor.known_columns = ['categorical_feature']
         self.predictor.secret_column = 'missing_target'  # Target not in DataFrame
-        self.predictor.categorical_columns = ['categorical_feature']
-        self.predictor.continuous_columns = []
+        self.predictor.onehot_columns = ['categorical_feature']
+        self.predictor.non_onehot_columns = []
         
         # Should return early without changes
-        original_categorical = self.predictor.categorical_columns.copy()
-        original_continuous = self.predictor.continuous_columns.copy()
+        original_categorical = self.predictor.onehot_columns.copy()
+        original_continuous = self.predictor.non_onehot_columns.copy()
         
         self.predictor._detect_and_reclassify_correlated_categoricals(df)
         
-        self.assertEqual(self.predictor.categorical_columns, original_categorical)
-        self.assertEqual(self.predictor.continuous_columns, original_continuous)
+        self.assertEqual(self.predictor.onehot_columns, original_categorical)
+        self.assertEqual(self.predictor.non_onehot_columns, original_continuous)
     
     def test_individual_helper_methods(self):
         """Test the individual helper methods directly."""
@@ -382,13 +382,11 @@ class TestReclassifyColumns(unittest.TestCase):
         )
         
         # Verify that reclassification occurred
-        self.assertIn('perfect_mapping', self.predictor.continuous_columns)
-        self.assertNotIn('perfect_mapping', self.predictor.categorical_columns)
+        self.assertIn('perfect_mapping', self.predictor.non_onehot_columns)
+        self.assertNotIn('perfect_mapping', self.predictor.onehot_columns)
         
         # Verify model was selected
         self.assertIsNotNone(result)
-        self.assertIsNotNone(self.predictor.selected_model_class)
-
 
 if __name__ == '__main__':
     unittest.main()

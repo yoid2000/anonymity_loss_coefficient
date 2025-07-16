@@ -58,8 +58,8 @@ class BaselinePredictor:
         self.known_columns = None
         self.secret_column = None
         self.encoder = None
-        self.categorical_columns = []
-        self.continuous_columns = []
+        self.onehot_columns = []
+        self.non_onehot_columns = []
         self.selected_model_class = None
         self.selected_model_params = None
         self.otop = None
@@ -75,10 +75,9 @@ class BaselinePredictor:
         self.known_columns = known_columns
         self.secret_column = secret_column
 
-        self.categorical_columns = [col for col in self.known_columns if column_classifications.get(col) == 'categorical']
-        self.continuous_columns = [col for col in self.known_columns if column_classifications.get(col) == 'continuous']
+        self.onehot_columns = [col for col in self.known_columns if column_classifications.get(col) == 'categorical']
+        self.non_onehot_columns = [col for col in self.known_columns if column_classifications.get(col) == 'continuous']
 
-        # Detect categorical features with 1-1 correlation to target and reclassify as continuous
         otop = self._detect_and_reclassify_correlated_categoricals(df)
         
         # If a one-to-one predictor is found, use it instead of other models
@@ -87,14 +86,14 @@ class BaselinePredictor:
             self.logger.info("Using OneToOnePredictor due to perfect 1-1 correlation")
             return "OneToOnePredictor"
 
-        if self.categorical_columns:
+        if self.onehot_columns:
             self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
-            X_cat = self.encoder.fit_transform(df[self.categorical_columns])
+            X_cat = self.encoder.fit_transform(df[self.onehot_columns])
         else:
             self.encoder = None
             X_cat = np.empty((len(df), 0))
 
-        X_cont = df[self.continuous_columns].values if self.continuous_columns else np.empty((len(df), 0))
+        X_cont = df[self.non_onehot_columns].values if self.non_onehot_columns else np.empty((len(df), 0))
         X = np.hstack([X_cont, X_cat])
         y = df[self.secret_column].values.ravel()
         classes = np.unique(y)
@@ -103,12 +102,12 @@ class BaselinePredictor:
             ("RandomForest", RandomForestClassifier(
                 random_state=random_state,
                 n_estimators=100,
-                max_depth=10,
-                max_features='sqrt',
-                min_samples_split=10,
-                min_samples_leaf=5,
-                class_weight='balanced',
-                oob_score=True
+                #max_depth=10,
+                #max_features='sqrt',
+                #min_samples_split=10,
+                #min_samples_leaf=5,
+                #class_weight='balanced',
+                #oob_score=True
             )),
             ("ExtraTrees", ExtraTreesClassifier(
                 random_state=random_state,
@@ -195,14 +194,14 @@ class BaselinePredictor:
         Returns:
             OneToOnePredictor if a near-perfect relationship is found, None otherwise
         """
-        if not self.categorical_columns or not isinstance(self.secret_column, str) or self.secret_column not in df.columns:
+        if not self.onehot_columns or not isinstance(self.secret_column, str) or self.secret_column not in df.columns:
             return None
             
         target_values = df[self.secret_column]
         columns_to_reclassify = []
         otop_candidates = []  # Store (column, correlation_ratio) pairs
         
-        for cat_col in self.categorical_columns[:]:  # Create a copy to iterate over
+        for cat_col in self.onehot_columns[:]:  # Create a copy to iterate over
             if cat_col not in df.columns:
                 continue
                 
@@ -211,7 +210,7 @@ class BaselinePredictor:
             # Case 1: Near-perfect correlation between categorical feature and target (99%+)
             correlation_ratio = self._calculate_correlation_ratio(feature_values, target_values)
             if correlation_ratio >= 0.99:
-                columns_to_reclassify.append((cat_col, f"near-perfect correlation with target ({correlation_ratio:.3f})"))
+                columns_to_reclassify.append((cat_col, f"near-perfect correlation with target ({correlation_ratio:.6f})"))
                 otop_candidates.append((cat_col, correlation_ratio))
                 continue
                     
@@ -235,14 +234,14 @@ class BaselinePredictor:
         if otop_candidates:
             best_col, best_ratio = max(otop_candidates, key=lambda x: x[1])
             otop = OneToOnePredictor(df, feature=best_col, target=self.secret_column)
-            self.logger.info(f"Selected OneToOnePredictor for column '{best_col}' with correlation ratio: {best_ratio:.3f} out of {len(otop_candidates)} candidates")
+            self.logger.info(f"Selected OneToOnePredictor for column '{best_col}' with correlation ratio: {best_ratio:.6f} out of {len(otop_candidates)} candidates")
                 
         # Reclassify identified columns as continuous
         for col, reason in columns_to_reclassify:
             self.logger.info(f"Reclassifying column '{col}' as continuous because: {reason}")
-            self.categorical_columns.remove(col)
-            if col not in self.continuous_columns:
-                self.continuous_columns.append(col)
+            self.onehot_columns.remove(col)
+            if col not in self.non_onehot_columns:
+                self.non_onehot_columns.append(col)
                 
         return otop
 
@@ -374,16 +373,16 @@ class BaselinePredictor:
             model_params["random_state"] = random_state
         self.model = model_class(**model_params)
 
-        self.logger.info(f"Building model with categorical columns: {self.categorical_columns}, continuous columns: {self.continuous_columns}")
-        if self.categorical_columns:
+        self.logger.info(f"Building model with categorical columns: {self.onehot_columns}, continuous columns: {self.non_onehot_columns}")
+        if self.onehot_columns:
             if self.encoder is None:
                 self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
-                X_cat = self.encoder.fit_transform(df[self.categorical_columns])
+                X_cat = self.encoder.fit_transform(df[self.onehot_columns])
             else:
-                X_cat = self.encoder.transform(df[self.categorical_columns])
+                X_cat = self.encoder.transform(df[self.onehot_columns])
         else:
             X_cat = np.empty((len(df), 0))
-        X_cont = df[self.continuous_columns].values if self.continuous_columns else np.empty((len(df), 0))
+        X_cont = df[self.non_onehot_columns].values if self.non_onehot_columns else np.empty((len(df), 0))
         X = np.hstack([X_cont, X_cat])
 
         y = df[self.secret_column].values.ravel()
@@ -412,11 +411,11 @@ class BaselinePredictor:
 
         model_name = type(self.model).__name__
 
-        if self.categorical_columns:
-            X_cat = self.encoder.transform(df_row[self.categorical_columns])
+        if self.onehot_columns:
+            X_cat = self.encoder.transform(df_row[self.onehot_columns])
         else:
             X_cat = np.empty((len(df_row), 0))
-        X_cont = df_row[self.continuous_columns].values if self.continuous_columns else np.empty((len(df_row), 0))
+        X_cont = df_row[self.non_onehot_columns].values if self.non_onehot_columns else np.empty((len(df_row), 0))
         X = np.hstack([X_cont, X_cat])
 
         prediction = self.model.predict(X)[0]
