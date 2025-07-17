@@ -166,6 +166,9 @@ class BaselinePredictor:
 
         self.selected_model_class = best_model_class
         self.selected_model_params = best_model_params
+        print("############################")
+        print(f"Selected model: {best_model_name} with parameters: {best_model_params}")
+        print("############################")
         return best_model_name
 
     def _detect_and_reclassify_correlated_categoricals(self, df: pd.DataFrame) -> Optional[OneToOnePredictor]:
