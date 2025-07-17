@@ -103,18 +103,18 @@ class BaselinePredictor:
                 random_state=random_state,
                 n_estimators=100,
             )),
-#            ("ExtraTrees", ExtraTreesClassifier(
-#                random_state=random_state,
-#                n_estimators=100,
-#            )),
-#            ("HistGB", HistGradientBoostingClassifier(
-#                random_state=random_state,
-#                max_iter=500,
-#            )),
-#            ("LogisticRegression", LogisticRegression(
-#                max_iter=5000,
-#                random_state=random_state
-#            )),
+            ("ExtraTrees", ExtraTreesClassifier(
+                random_state=random_state,
+                n_estimators=100,
+            )),
+            ("HistGB", HistGradientBoostingClassifier(
+                random_state=random_state,
+                max_iter=500,
+            )),
+            ("LogisticRegression", LogisticRegression(
+                max_iter=5000,
+                random_state=random_state
+            )),
         ]
         if len(classes) < 2:
             best_model_name, best_model = models[0]
