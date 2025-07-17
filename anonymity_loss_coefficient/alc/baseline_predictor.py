@@ -166,9 +166,7 @@ class BaselinePredictor:
 
         self.selected_model_class = best_model_class
         self.selected_model_params = best_model_params
-        print("############################")
-        print(f"Selected model: {best_model_name} with parameters: {best_model_params}")
-        print("############################")
+        self.logger.info(f"Selected model: {best_model_name} with parameters: {best_model_params}")
         return best_model_name
 
     def _detect_and_reclassify_correlated_categoricals(self, df: pd.DataFrame) -> Optional[OneToOnePredictor]:
@@ -383,6 +381,11 @@ class BaselinePredictor:
                 y = y.astype(str)
 
         self.logger.info(f"    Building model with {len(X)} samples and {X.shape[1]} features")
+        # In your baseline predictor, print:
+        print("Feature stats:", X.describe())
+        print("Target stats:", y.value_counts().sort_index())
+        print("Feature sample:", X.head(10))
+        print("Target sample:", y.head(10))
         self.model.fit(X, y)
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
