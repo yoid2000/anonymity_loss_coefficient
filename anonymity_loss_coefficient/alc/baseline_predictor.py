@@ -379,6 +379,7 @@ class BaselinePredictor:
             except Exception:
                 y = y.astype(str)
 
+        self.logger.info(f"    Building model with {len(X)} samples and {X.shape[1]} features")
         self.model.fit(X, y)
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
