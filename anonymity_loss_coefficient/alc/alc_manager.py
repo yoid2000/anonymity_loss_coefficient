@@ -90,7 +90,7 @@ class ALCManager:
                  discretize_in_place=self.alcp.df.discretize_in_place,
                  max_cntl_size=self.alcp.df.max_cntl_size,
                  max_cntl_percent=self.alcp.df.max_cntl_percent,
-                 logger=self.logger
+                 logger=self.logger,
                  random_state=random_state,
         )
         self.prior_experiment_swap_fraction = prior_experiment_swap_fraction     # experimental purposes
