@@ -381,19 +381,6 @@ class BaselinePredictor:
                 y = y.astype(str)
 
         self.logger.info(f"    Building model with {len(X)} samples and {X.shape[1]} features")
-        # In BaselinePredictor.build_model(), right before self.model.fit(X, y):
-        print("=== DEBUG: Data going into model.fit() ===")
-        print("Feature stats - mean:", np.mean(X, axis=0))
-        print("Feature stats - std:", np.std(X, axis=0))
-        print("Feature stats - min:", np.min(X, axis=0))
-        print("Feature stats - max:", np.max(X, axis=0))
-        print("Target stats:", np.unique(y, return_counts=True))
-        print("Feature sample:", X[:10])
-        print("Target sample:", y[:10])
-        print("Feature shape:", X.shape)
-        print("Target shape:", y.shape)
-        print("Feature dtype:", X.dtype)
-        print("Target dtype:", y.dtype)
         self.model.fit(X, y)
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:

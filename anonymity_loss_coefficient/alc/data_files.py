@@ -1,10 +1,13 @@
 import numpy as np
 import pandas as pd
+import random
 from typing import Dict, List, Union, Any, Optional
 import warnings
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import KBinsDiscretizer
+from sklearn.model_selection import train_test_split
 import gc
+import logging
 # The following to suppress warnings from loky about CPU count
 import os
 os.environ["LOKY_MAX_CPU_COUNT"] = "8"  # Replace 8 with your number of logical cores
@@ -18,8 +21,10 @@ class DataFiles:
                  discretize_in_place: bool,
                  max_cntl_size: int,
                  max_cntl_percent: float,
+                 logger: logging.Logger,
                  random_state: Optional[int] = None,
                  ) -> None:
+        self.logger = logger
         self.disc_max = disc_max
         self.disc_bins = disc_bins
         self.discretize_in_place = discretize_in_place
@@ -221,3 +226,45 @@ class DataFiles:
             encoders[col].fit(values)
 
         return encoders
+
+    def check_and_fix_target_classes(self, secret_col: str) -> None:
+        all_classes = set(self.orig_all[secret_col].unique())
+        if self.cntl is None:
+            raise ValueError("self.cntl is None. Assign a control block before checking target classes.")
+        test_classes = set(self.cntl[secret_col].unique())
+        if self.orig is None:
+            raise ValueError("self.orig is None. Assign a control block before checking target classes.")
+        train_classes = set(self.orig[secret_col].unique())
+        
+        if train_classes == all_classes and test_classes == all_classes:
+            return
+
+        # It can happen, esp. in small datasets, that the "test data" or the
+        # "training data" does not contain all of the classes. When this occurs,
+        # rather than raise an error, we override the choice of cntl and orig.
+        # This can result in the same "victim" occasionally being attacked. This
+        # is not perfect, but won't distort the results by much.
+        # Perform stratified sampling to ensure all classes are in both sets
+        
+        self.logger.info(f"Adjusting cntl and orig to ensure all classes are present in both sets.")
+        # Get indices for stratified split
+        indices = self.orig_all.index.tolist()
+        target_values = self.orig_all[secret_col].tolist()
+        
+        # Calculate test size to match len(self.cntl)
+        test_size = len(self.cntl) / len(self.orig_all)
+        
+        # Generate a random seed for each call to ensure different splits
+        random_seed = random.randint(0, 2**32 - 1)
+        
+        # Perform stratified split with a random seed for each call
+        train_indices, test_indices = train_test_split(
+            indices, 
+            test_size=test_size, 
+            stratify=target_values, 
+            random_state=random_seed
+        )
+        
+        # Update cntl and orig with stratified samples
+        self.cntl = self.orig_all.loc[test_indices].reset_index(drop=True)
+        self.orig = self.orig_all.loc[train_indices].reset_index(drop=True)
