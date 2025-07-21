@@ -98,6 +98,10 @@ class BaselinePredictor:
         y = df[self.secret_column].values.ravel()
         classes = np.unique(y)
 
+        # This code is supposed to select the best model based on validation scores,
+        # but I'm doubtful that it really works well in practice. If we really want to
+        # do this, probably better to simply measure the prc score on the predictions
+        # themselves. TODO.
         models = [
             ("RandomForest", RandomForestClassifier(
                 random_state=random_state,
@@ -116,9 +120,12 @@ class BaselinePredictor:
 #                random_state=random_state
 #            )),
         ]
-        if len(classes) < 2:
+        if len(classes) < 2 or len(models) == 1:
             best_model_name, best_model = models[0]
             self.selected_model = best_model
+            self.selected_model_class = type(best_model)
+            self.selected_model_params = best_model.get_params()
+            self.logger.info(f"Selected 0th model by default: {best_model_name} with parameters: {self.selected_model_params}")
             return best_model_name
 
         def log_loss_with_labels(y_true, y_pred_proba, **kwargs):

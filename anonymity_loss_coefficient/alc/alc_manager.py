@@ -156,7 +156,7 @@ class ALCManager:
             self.halt_info = {'halted': True, 'reason': 'attack already run. skipping.', 'num_attacks': 0, 'halt_code': 'skip'}
             return
 
-        # Establish the targets to ignore, if any, and make a ScoreInterval object
+        # Establish the target values to ignore, if any, and make a ScoreInterval object
         # for the halting decision.
         ignore_value, ignore_fraction = self._get_target_to_ignore_for_halting(secret_column)
         if ignore_value is not None:
