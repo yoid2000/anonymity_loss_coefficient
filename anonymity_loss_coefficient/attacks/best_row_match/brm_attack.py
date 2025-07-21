@@ -44,6 +44,7 @@ class BrmAttack:
             file_level = logging.DEBUG
         self.no_counter = no_counter
         self.logger = setup_logging(log_file_path=logger_path, file_level=file_level)
+        self.logger.info(f"Original DataFrame shape: {df_original.shape}")
         self.logger.info(f"Original columns: {self.original_columns}")
 
         attack_tags = {'type': 'brm_attack',

@@ -78,6 +78,10 @@ class ALCManager:
             for k, v in attack_tags.items():
                 self.alcp.set_param(self.alcp.atk, k, v)
 
+        self.logger = logger
+        if self.logger is None:
+            logger_path = os.path.join(results_path, 'alc_manager.log')
+            self.logger = setup_logging(log_file_path=logger_path)
         self.df = DataFiles(
                  df_original=df_original,
                  anon=anon,
@@ -86,19 +90,17 @@ class ALCManager:
                  discretize_in_place=self.alcp.df.discretize_in_place,
                  max_cntl_size=self.alcp.df.max_cntl_size,
                  max_cntl_percent=self.alcp.df.max_cntl_percent,
+                 logger=self.logger,
                  random_state=random_state,
         )
         self.prior_experiment_swap_fraction = prior_experiment_swap_fraction     # experimental purposes
-        self.logger = logger
-        if self.logger is None:
-            logger_path = os.path.join(results_path, 'alc_manager.log')
-            self.logger = setup_logging(log_file_path=logger_path)
-        self.base_pred = BaselinePredictor()
+        self.base_pred = BaselinePredictor(logger=self.logger)
         self.alc = AnonymityLossCoefficient(
             prc_abs_weight=self.alcp.alc.prc_abs_weight,
             recall_adjust_min_intercept=self.alcp.alc.recall_adjust_min_intercept,
             recall_adjust_strength=self.alcp.alc.recall_adjust_strength,
         )
+        self.model_name = None
         self.random_state = random_state
         self.max_score_interval = self.alcp.si.max_score_interval
         self.halt_thresh_low = self.alcp.alcm.halt_thresh_low
@@ -154,7 +156,7 @@ class ALCManager:
             self.halt_info = {'halted': True, 'reason': 'attack already run. skipping.', 'num_attacks': 0, 'halt_code': 'skip'}
             return
 
-        # Establish the targets to ignore, if any, and make a ScoreInterval object
+        # Establish the target values to ignore, if any, and make a ScoreInterval object
         # for the halting decision.
         ignore_value, ignore_fraction = self._get_target_to_ignore_for_halting(secret_column)
         if ignore_value is not None:
@@ -226,15 +228,15 @@ class ALCManager:
                 self.halt_info.update({'elapsed_time': elapsed_time})
                 if self.halt_info['halted'] is True:
                     self.attack_in_progress = False
-                    self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.alcp)
+                    self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.model_name, self.alcp)
                     return
-            is_assigned = self._next_cntl_and_build_model()
+            is_assigned = self._next_cntl_and_build_model(secret_column)
             if is_assigned is False:
                 end_time = time.time()
                 elapsed_time = round(end_time - self.start_time, 4)
                 self.halt_info = {'halted': True, 'reason': 'exhausted all rows',  'num_attacks': num_attacks, 'halt_code': 'exhausted', 'elapsed_time': elapsed_time}
                 self.attack_in_progress = False
-                self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.alcp)
+                self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.model_name, self.alcp)
                 return
 
     def abstention(self) -> bool:
@@ -492,8 +494,10 @@ class ALCManager:
         is_assigned = self.df.assign_first_cntl_block()
         if is_assigned is False:
             raise ValueError("Error: Control block initialization failed")
+        self.df.check_and_fix_target_classes(secret_column)
         df = self.df.orig
-        self.base_pred.build_model(df, known_columns, secret_column, self.get_column_classification_dict(), self.random_state)
+        self.model_name = self.base_pred.select_model(self.df.orig_all, known_columns, secret_column, self.get_column_classification_dict(), self.random_state)
+        self.base_pred.build_model(df, self.random_state)
         if self.prior_experiment_swap_fraction > 0:
             # This is purely for experimentation and should not be used otherwise
             # self.df.orig contains the sampled original data used for baseline
@@ -501,10 +505,11 @@ class ALCManager:
             # So we want to anonymize self.df.orig but leave it in self.df.orig
             self.df.orig = _swap_anonymize(self.df.orig, self.prior_experiment_swap_fraction)
 
-    def _next_cntl_and_build_model(self) -> bool:
+    def _next_cntl_and_build_model(self, secret_column: str) -> bool:
         is_assigned = self.df.assign_next_cntl_block()
         if is_assigned is False:
             return False
+        self.df.check_and_fix_target_classes(secret_column)
         df = self.df.orig
         self.base_pred.build_model(df)
         if self.prior_experiment_swap_fraction > 0:
@@ -532,8 +537,7 @@ class ALCManager:
             return None
         return self.rep.alc_per_secret_and_known_df(known_columns, secret_column)
             
-
-# Everything after this gets removed after experimentation completed
+# TODO: Everything after this gets removed after experimentation completed
 def _swap_anonymize(df: pd.DataFrame, swap_fraction: float) -> pd.DataFrame:
     # Precompute column indices for faster access
     column_indices = {column: df.columns.get_loc(column) for column in df.columns}

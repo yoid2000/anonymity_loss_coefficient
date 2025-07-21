@@ -19,5 +19,5 @@ Perfect anonymity:     1 (50.0%)
      No anonymity:     0 (0.0%)
 
 Examples of poor anonymity loss:
-ALC: 0.99, base (prec: 0.26, recall: 0.96), attack (prec: 0.99, recall: 0.96)
+ALC: 0.99, base (prec: 0.28, recall: 0.97), attack (prec: 0.99, recall: 0.97)
     Secret: t1, Known: ["f1", "i2"]
