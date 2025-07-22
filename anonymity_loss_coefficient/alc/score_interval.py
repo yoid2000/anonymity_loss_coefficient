@@ -18,6 +18,9 @@ class ScoreInterval:
         if si_confidence < 0 or si_confidence > 1:
             raise ValueError(f"Error: Invalid condifence {si_confidence}. Must be between 0 and 1")
         self.logger = logger
+        self.progress = []
+        self.best_base_prc = None
+        self.best_attack_prc = None
         self.halt_interval_thresh = halt_interval_thresh
         self.max_score_interval = max_score_interval
         self.si_type = si_type
@@ -49,149 +52,6 @@ class ScoreInterval:
             self.df_attack = self._add_row(self.df_attack, new_row)
 
 
-
-    def get_alc_scores(self, num_prc_measures: int) -> List[Dict]:
-        alc_scores = []
-        # sort df_base by base_confidence descending
-        df_base = self.df_base.sort_values(by='base_confidence', ascending=False)
-        atk_confs = sorted(self.df_attack['attack_confidence'].unique(), reverse=True)
-        atk_confs = [x for x in atk_confs if pd.notna(x)]
-        # limit atk_confs to num_prc_measures values, because there can be very many
-        atk_confs = _select_evenly_distributed_values(atk_confs, num_prc_measures)
-        for atk_conf in atk_confs:
-            df_atk_conf = self.df_attack[self.df_attack['attack_confidence'] >= atk_conf]
-            num_predictions = len(df_atk_conf)
-            df_base_conf = _get_base_subset(df_base, num_predictions)
-            # df_atk_conf and df_base_conf are the rows that pertain to the specific
-            # prediction quality (confidence) of interest
-            base_prec_as_sampled = df_base_conf['prediction'].mean()
-            base_recall = len(df_base_conf) / len(df_base)
-            attack_prec_as_sampled = df_atk_conf['prediction'].mean()
-            attack_recall = len(df_atk_conf) / len(self.df_attack)
-            base_si = None
-            attack_si = None
-            base_low, base_high = self.compute_precision_interval(n = len(df_base_conf),
-                                                              precision = base_prec_as_sampled)
-            base_si = base_high - base_low
-            base_prec = base_low + (base_si/2)
-            base_prc = self.alc.prc(prec=base_prec, recall=base_recall)
-            attack_low, attack_high = self.compute_precision_interval(n = len(df_atk_conf),
-                                                              precision = attack_prec_as_sampled)
-            attack_si = attack_high - attack_low
-            # Note that default max_score_interval is 0.5
-            if attack_si > self.max_score_interval or base_si > self.max_score_interval:
-                continue
-            alc_as_sampled = self.alc.alc(p_base=base_prec_as_sampled, r_base=base_recall, p_attack=attack_prec_as_sampled, r_attack=attack_recall)
-            attack_prec = attack_low + (attack_si/2)
-            attack_prc = self.alc.prc(prec=attack_prec, recall=attack_recall)
-            # The lower bound uses the si_low of the attack and si_high of the base
-            alc_low = self.alc.alc(p_base=base_high, r_base=base_recall,
-                                p_attack=attack_low, r_attack=attack_recall)
-            # The upper bound is the reverse
-            alc_high = self.alc.alc(p_base=base_low, r_base=base_recall,
-                                p_attack=attack_high, r_attack=attack_recall)
-            alc = self.alc.alc(p_base=base_prec, r_base=base_recall,
-                                p_attack=attack_prec, r_attack=attack_recall)
-            alc_scores.append({
-                'paired': True,
-                'alc': alc,
-                'base_recall': base_recall,
-                'base_prec': base_prec,
-                'base_prc': base_prc,
-                'base_si': base_si,
-                'base_n': len(df_base_conf),
-                'attack_recall': attack_recall,
-                'attack_prec': attack_prec,
-                'attack_prc': attack_prc,
-                'attack_si': attack_si,
-                'attack_n': len(df_atk_conf),
-                'base_prec_as_sampled': base_prec_as_sampled,
-                'attack_prec_as_sampled': attack_prec_as_sampled,
-                'alc_as_sampled': alc_as_sampled,
-                'alc_low': alc_low,
-                'alc_high': alc_high,
-                'base_si_low': base_low,
-                'base_si_high': base_high,
-                'attack_si_low': attack_low,
-                'attack_si_high': attack_high,
-            })
-        # The alc_scores so far have closely matching base and attack recalls. However,
-        # we want to compute an ALC score using the best base and attack PRC values,
-        # even though they may have different recall values.
-        base_best_score, attack_best_score = self._get_score_from_max_significant_prcs(alc_scores)
-        if base_best_score is not None and attack_best_score is not None:
-            # Add non-paired "best" ALC score
-            # The lower bound ALC uses the si_low of the attack and si_high of the base
-            alc_low = self.alc.alc(p_base=base_best_score['base_si_high'],
-                                r_base=base_best_score['base_recall'],
-                                p_attack=attack_best_score['attack_si_low'],
-                                r_attack=attack_best_score['attack_recall'])
-            #print(f"\nalc_low: {alc_low} from p_base: {base_best_score['base_si_high']} p_attack: {attack_best_score['attack_si_low']}")
-            # The upper bound ALC is the reverse
-            alc_high = self.alc.alc(p_base=base_best_score['base_si_low'],
-                                    r_base=base_best_score['base_recall'],
-                                    p_attack=attack_best_score['attack_si_high'],
-                                    r_attack=attack_best_score['attack_recall'])
-            #print(f"\nalc_high: {alc_low} from p_base: {base_best_score['base_si_low']} p_attack: {attack_best_score['attack_si_high']}")
-
-            alc = self.alc.alc(p_base=base_best_score['base_prec'],
-                                    r_base=base_best_score['base_recall'],
-                                    p_attack=attack_best_score['attack_prec'],
-                                    r_attack=attack_best_score['attack_recall'])
-            alc_as_sampled = self.alc.alc(p_base=base_best_score['base_prec_as_sampled'],
-                                    r_base=base_best_score['base_recall'],
-                                    p_attack=attack_best_score['attack_prec_as_sampled'],
-                                    r_attack=attack_best_score['attack_recall'])
-            alc_scores.append({
-                'paired': False,
-                'alc': alc,
-                'base_recall': base_best_score['base_recall'],
-                'base_prec': base_best_score['base_prec'],
-                'base_prc': base_best_score['base_prc'],
-                'base_si': base_best_score['base_si'],
-                'base_n': base_best_score['base_n'],
-                'attack_recall': attack_best_score['attack_recall'],
-                'attack_prec': attack_best_score['attack_prec'],
-                'attack_prc': attack_best_score['attack_prc'],
-                'attack_si': attack_best_score['attack_si'],
-                'attack_n': attack_best_score['attack_n'],
-                'base_prec_as_sampled': base_best_score['base_prec_as_sampled'],
-                'attack_prec_as_sampled': attack_best_score['attack_prec_as_sampled'],
-                'alc_as_sampled': alc_as_sampled,
-                'alc_low': alc_low,
-                'alc_high': alc_high,
-                'base_si_low': base_best_score['base_si_low'],
-                'base_si_high': base_best_score['base_si_high'],
-                'attack_si_low': attack_best_score['attack_si_low'],
-                'attack_si_high': attack_best_score['attack_si_high'],
-            })
-        return _do_rounding(alc_scores)
-
-
-    def split_scores(self, alc_scores: List[Dict[str, Any]]) -> Tuple[Optional[List[Dict[str, Any]]], List[Dict[str, Any]]]:
-        best_score = None
-        for score in alc_scores:
-            if score['paired'] is False:
-                best_score = score
-                # remove score from alc_scores
-                alc_scores.remove(score)
-        return best_score, alc_scores
-
-
-    def _get_score_from_max_significant_prcs(self, alc_scores: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        base_alc_score = None
-        max_base_prc = -1.0
-        attack_alc_score = None
-        max_attack_prc = -1.0
-        for score in alc_scores:
-            if score['base_si'] <= self.halt_interval_thresh and score['base_prc'] > max_base_prc:
-                max_base_prc = score['base_prc']
-                base_alc_score = score
-            if score['attack_si'] <= self.halt_interval_thresh and score['attack_prc'] > max_attack_prc:
-                max_attack_prc = score['attack_prc']
-                attack_alc_score = score
-        return base_alc_score, attack_alc_score
-
     def compute_precision_interval(self, n: int,
                                    precision: float) -> Tuple[float, float]:
         '''
@@ -212,10 +72,154 @@ class ScoreInterval:
         denominator = 1 + z**2 / n
         center_adjusted_probability = precision + z**2 / (2 * n)
         adjusted_standard_deviation = np.sqrt((precision * (1 - precision) + z**2 / (4 * n)) / n)
-        lower_bound = (center_adjusted_probability - z * adjusted_standard_deviation) / denominator
-        upper_bound = (center_adjusted_probability + z * adjusted_standard_deviation) / denominator
+        lower_bound = float((center_adjusted_probability - z * adjusted_standard_deviation) / denominator)
+        upper_bound = float((center_adjusted_probability + z * adjusted_standard_deviation) / denominator)
 
-        return lower_bound, upper_bound
+        return float(round(lower_bound, 4)), float(round(upper_bound, 4))
+
+    def get_basic_data(self, total_predict: int = 0) -> Dict:
+        return {
+            'n': 0,
+            'total_predict': total_predict,
+            'si_low': 0.0,
+            'si_high': 0.0,
+            'si': 0.0,
+            'prec': 0.0,
+            'recall': 0.0,
+            'prc': 0.0,
+        }
+
+    def get_dummy_data(self) -> Dict:
+        return self._compile_data(
+            base_data=self.get_basic_data(),
+            attack_data=self.get_basic_data()
+        )
+
+    def _compute_best_prc(self, pred_type: str) -> Dict:
+        if pred_type not in ['base', 'attack']:
+            raise ValueError(f"Error: Invalid prediction type {pred_type}. Use 'base' or 'attack'")
+        conf = f'{pred_type}_confidence'
+        if pred_type == 'base':
+            df_sorted_pred = self.df_base.sort_values(by=conf, ascending=False)
+        else:
+            df_sorted_pred = self.df_attack.sort_values(by=conf, ascending=False)
+        max_prc = 0
+        used_confidence = None
+        total_rows = len(df_sorted_pred)
+
+        for n in range(1, total_rows + 1):
+            top_n_rows = df_sorted_pred.head(n)
+            correct_predictions = top_n_rows['prediction'].sum()
+            prec = correct_predictions / n
+            recall = n / total_rows
+            low, high = self.compute_precision_interval(n = n, precision = prec)
+            prec_interval = high - low
+            
+            if prec_interval < 0.1:
+                mid_prec = low + ((high - low) / 2)  # Use midpoint for precision
+                prc = self.alc.prc(prec=mid_prec, recall=recall)
+                if prc > max_prc:
+                    max_prc = prc
+                    used_confidence = top_n_rows.iloc[-1][conf]
+
+        # compute precision, recall, and prc for all rows with
+        # confidence >= used_confidence. Needed because the above loop may not have
+        # included all rows at the used_confidence level.
+        # If the following is changed, also change get_dummy_data()
+        res = self.get_basic_data(total_predict=total_rows)
+        if used_confidence is not None:
+            final_rows = df_sorted_pred[df_sorted_pred[conf] >= used_confidence]
+            final_correct = final_rows['prediction'].sum()
+            res['n'] = len(final_rows)
+            final_precision = final_correct / res['n'] if res['n'] > 0 else 0
+            res['si_low'], res['si_high'] = self.compute_precision_interval(n = res['n'], precision = final_precision)
+            res['si'] = round(res['si_high'] - res['si_low'], 4)
+            res['prec'] = round(res['si_low'] + ((res['si_high'] - res['si_low']) / 2), 4)  # Use midpoint for precision
+            res['recall'] = round(res['n'] / total_rows, 4)
+            res['prc'] = self.alc.prc(prec=res['prec'], recall=res['recall'])
+        return res
+
+    def _compile_data(self, base_data: Dict, attack_data: Dict) -> Dict:
+        data = {}
+        prefix = 'base_'
+        for key, value in base_data.items():
+            data[prefix + key] = value
+        prefix = 'attack_'
+        for key, value in attack_data.items():
+            data[prefix + key] = value
+        data['alc'] = self.alc.alc(p_base=data['base_prec'], r_base=data['base_recall'],
+                           p_attack=data['attack_prec'], r_attack=data['attack_recall'])
+        return data
+
+    def ok_to_halt(self) -> Dict[str, Any]:
+        ''' Monitors the progress of the attack and baseline, and determines if
+        the results of both are significant enough to halt the predictor loop.
+        Operates by peridocally computing the best PRC scores for both attack
+        and baseline using _compute_best_prc(), and checking for
+        diminishing returns in improving PRC.
+        It makes its first prc measures when there are 100 predictions. Subsequently,
+        it measures prcs every 50 additional predictions, and compares the prc values
+        to the prior measures.
+        '''
+        if len(self.df_base) != len(self.df_attack):
+            # throw and exception
+            raise ValueError(f"Error: The number of base and attack predictions are not the same. Base: {len(self.df_base)}, Attack: {len(self.df_attack)}")
+
+        if len(self.df_base) < 100 or len(self.df_attack) < 100:
+            return {'halted': False,
+                    'reason': f'not enough samples',
+                    'halt_code': 'none', 'data': None,}
+        if len(self.df_base) % 50 != 0:
+            return {'halted': False,
+                    'reason': f'not measure checkpoint',
+                    'halt_code': 'none', 'data': None,}
+        base_prc_res = self._compute_best_prc('base')
+        attack_prc_res = self._compute_best_prc('attack')
+        data = self._compile_data(base_prc_res, attack_prc_res)
+        self.logger.info(f"\nCheckpoint: {len(self.df_base)} predictions: {data}")
+        if base_prc_res['n'] == 0 or attack_prc_res['n'] == 0:
+            return {'halted': False,
+                    'alc': data['alc'],
+                    'reason': f'significant intervals not reached (base: {base_prc_res['si']}, attack: {attack_prc_res['si']})',
+                    'halt_code': 'none',
+                    'data': data,}
+        if ((self.best_base_prc is None and self.best_attack_prc is not None) or
+           (self.best_base_prc is not None and self.best_attack_prc is None)):
+            raise ValueError("Error: Only one of self.best_base_prc and self.best_attack_prc is None. This should not happen.")
+        if self.best_base_prc is None:
+            # First checkpoint
+            self.progress.append({'base_res': base_prc_res, 'attack_res': attack_prc_res})
+            self.best_base_prc = base_prc_res
+            self.best_attack_prc = attack_prc_res
+            return {'halted': False,
+                    'alc': data['alc'],
+                    'reason': f'first checkpoint: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}',
+                    'halt_code': 'none',
+                    'data': data,}
+        # Beyond this point, each checkpoint is compared to the last
+        if self.best_base_prc is None or self.best_attack_prc is None:
+            raise ValueError("Error: last_base_prc or last_attack_prc is None. This should not happen.")
+        base_improv_thresh = max(0.01, (1.0 - self.best_base_prc['prc']) * 0.05)
+        attack_improv_thresh = max(0.01, (1.0 - self.best_attack_prc['prc']) * 0.05)
+        base_progress = (base_prc_res['prc'] - self.best_base_prc['prc']) >= base_improv_thresh
+        attack_progress = (attack_prc_res['prc'] - self.best_attack_prc['prc']) >= attack_improv_thresh
+        if base_prc_res['prc'] > self.best_base_prc['prc']:
+            self.best_base_prc = base_prc_res
+        if attack_prc_res['prc'] > self.best_attack_prc['prc']:
+            self.best_attack_prc = attack_prc_res
+        if base_progress is False and attack_progress is False:
+            data = self._compile_data(self.best_base_prc, self.best_attack_prc)
+            self.logger.info(f"\nCheckpoint: {len(self.df_base)} predictions: {data}")
+            return {'halted': True,
+                    'alc': data['alc'],
+                    'reason': f'diminishing returns: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}',
+                    'halt_code': 'diminishing_returns',
+                    'data': data,}
+        return {'halted': False,
+                'alc': data['alc'],
+                'reason': f'still making progress: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}',
+                'halt_code': 'none',
+                'data': data,}
 
 
 def _select_evenly_distributed_values(sorted_list: list, num_prc_measures: int) -> List[float]:

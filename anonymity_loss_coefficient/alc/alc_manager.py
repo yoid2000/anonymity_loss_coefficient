@@ -31,7 +31,6 @@ class ALCManager:
                        halt_interval_thresh: Optional[float] = None,
                        halt_min_significant_attack_prcs: Optional[int] = None,
                        halt_min_prc_improvement: Optional[float] = None,
-                       halt_check_count: Optional[int] = None,
                        # AnonymityLossCoefficient parameters
                        prc_abs_weight: Optional[float] = None,
                        recall_adjust_min_intercept: Optional[float] = None,
@@ -56,7 +55,6 @@ class ALCManager:
         self.alcp.set_param(self.alcp.alcm, 'halt_interval_thresh', halt_interval_thresh)
         self.alcp.set_param(self.alcp.alcm, 'halt_min_significant_attack_prcs', halt_min_significant_attack_prcs)
         self.alcp.set_param(self.alcp.alcm, 'halt_min_prc_improvement', halt_min_prc_improvement)
-        self.alcp.set_param(self.alcp.alcm, 'halt_check_count', halt_check_count)
 
         self.alcp.set_param(self.alcp.alc, 'prc_abs_weight', prc_abs_weight)
         self.alcp.set_param(self.alcp.alc, 'recall_adjust_min_intercept', recall_adjust_min_intercept)
@@ -108,7 +106,6 @@ class ALCManager:
         self.halt_interval_thresh = self.alcp.alcm.halt_interval_thresh
         self.halt_min_significant_attack_prcs = self.alcp.alcm.halt_min_significant_attack_prcs
         self.halt_min_prc_improvement = self.alcp.alcm.halt_min_prc_improvement
-        self.halt_check_count = self.alcp.alcm.halt_check_count
         self.attack_in_progress = False
 
         self.rep = Reporter(results_path=results_path,
@@ -173,11 +170,18 @@ class ALCManager:
                                 logger=self.logger)
 
         # Initialize the first set of control rows
-        self._init_cntl_and_build_model(known_columns, secret_column)
+        if self._init_cntl_and_build_model(known_columns, secret_column) is False:
+            self.halt_info = {'halted': True, 'reason': 'control block initialization failed', 'num_attacks': 0, 'halt_code': 'init_failed'}
+            self.halt_info['data'] = si_halt.get_dummy_data()
+            self.attack_in_progress = False
+            pp.pprint(self.halt_info)
+            self.rep.consolidate_results(self.halt_info['data'], secret_column, known_columns, self.halt_info['halt_code'], 0.0, 'none', self.alcp)
+            return
 
         num_attacks = 0
         self.halt_info = {'halted': False, 'reason': 'halt not yet checked', 'num_attacks': 1, 'halt_code': 'none'}
         self.attack_in_progress = True
+        last_halt_info = None
         while True:
             for i in range(len(self.df.cntl)):
                 # Get one base and attack measure at a time, and continue until we have
@@ -218,17 +222,17 @@ class ALCManager:
                                 encoded_true_value=encoded_true_value,
                                 attack_confidence=self.prediction_confidence,
                                 si_halt=si_halt)
-                if num_attacks % self.halt_check_count == 0:
-                    # This check is a bit expensive, so by default don't do it every time
-                    self.halt_info = self._ok_to_halt(si_halt)
+                self.halt_info = si_halt.ok_to_halt()
                 self.halt_info.update({'num_attacks': num_attacks})
                 self.logger.debug(pp.pformat(self.halt_info))
                 end_time = time.time()
                 elapsed_time = round(end_time - self.start_time, 4)
                 self.halt_info.update({'elapsed_time': elapsed_time})
+                if 'data'in self.halt_info and self.halt_info['data'] is not None:
+                    last_halt_info = self.halt_info.copy()
                 if self.halt_info['halted'] is True:
                     self.attack_in_progress = False
-                    self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.model_name, self.alcp)
+                    self.rep.consolidate_results(self.halt_info['data'], secret_column, known_columns, self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.model_name, self.alcp)
                     return
             is_assigned = self._next_cntl_and_build_model(secret_column)
             if is_assigned is False:
@@ -236,7 +240,15 @@ class ALCManager:
                 elapsed_time = round(end_time - self.start_time, 4)
                 self.halt_info = {'halted': True, 'reason': 'exhausted all rows',  'num_attacks': num_attacks, 'halt_code': 'exhausted', 'elapsed_time': elapsed_time}
                 self.attack_in_progress = False
-                self.rep.consolidate_results(si_halt.get_alc_scores(self.num_prc_measures), self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.model_name, self.alcp)
+                if 'data' not in self.halt_info:
+                    if last_halt_info is not None:
+                        self.halt_info['data'] = last_halt_info['data']
+                        pp.pprint(last_halt_info)
+                        pp.pprint(self.halt_info)
+                    else:
+                        self.logger.warning("Exhausted rows before results were obtained. Ending attack without results.")
+                        return
+                self.rep.consolidate_results(self.halt_info['data'], secret_column, known_columns, self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.model_name, self.alcp)
                 return
 
     def abstention(self) -> bool:
@@ -401,77 +413,6 @@ class ALCManager:
             return 'low'
         return 'none'
 
-    def _ok_to_halt(self, si_halt: ScoreInterval) -> Dict[str, Any]:
-        if len(si_halt.df_base) < 50 or len(si_halt.df_attack) < 50:
-            return {'halted': False, 'reason': f'not enough samples {len(si_halt.df_base)} base, {len(si_halt.df_attack)} attack', 'halt_code': 'none'}
-        alc_scores = si_halt.get_alc_scores(self.num_prc_measures)
-        if self.do_early_halt is False:
-            early_halt_status = self._check_for_early_halt(alc_scores)
-            if early_halt_status == 'high':
-                self.do_early_halt = True
-                return {'halted': False, 'reason': 'do extremely high', 'halt_code': 'none'}
-            elif early_halt_status == 'low':
-                self.do_early_halt = True
-                return {'halted': False, 'reason': 'do extremely low', 'halt_code': 'none'}
-        # put the values of alc_scores['paired'] into a list called paired
-        if len(alc_scores) == 0:
-            return {'halted': False, 'reason':f'no alc scores with attack and base score intervals < {self.max_score_interval} (early halt {self.do_early_halt})', 'halt_code': 'none'}
-        best_alc_score, alc_scores = si_halt.split_scores(alc_scores)
-        if best_alc_score is None:
-            return {'halted': False, 'reason':f'no prc scores with attack and base score intervals < {self.halt_interval_thresh} (early halt {self.do_early_halt})', 'halt_code': 'none'}
-
-        ret = best_alc_score
-        if self.do_early_halt is True:
-            ret.update({'halted':True, 'reason':'early halt', 'halt_code': 'early_halt'})
-            return ret
-        if ret['alc_high'] < self.halt_thresh_low:
-            ret.update({'halted':True, 'reason':'alc extremely low', 'halt_code': 'extreme_low'})
-            return ret
-        if ret['alc_low'] > self.halt_thresh_high:
-            ret.update({'halted':True, 'reason':'alc extremely high', 'halt_code': 'extreme_high'})
-            return ret
-        # We didn't halt because of extreme high or low ALC, so now we want to determine
-        # if further attacks are likely to yield a better ALC.
-        # Sort alc_scores from highest to lowest 'attack_recall'
-        sig_attack_prcs = self._get_significant_attack_prcs(alc_scores)
-        if len(sig_attack_prcs) == len(alc_scores):
-            # This occurs if all alc_scores are significant (have attack_si and
-            # base_si < halt_interval_thresh). Make sure we have 200 predictions
-            # so that we've given an adequate opportunity to get all the confidence
-            # values we're likely to get.
-            if len(si_halt.df_base) < 200 and len(si_halt.df_attack) < 200:
-                ret.update({'halted':False, 'reason':f'not enough samples even with attack prc measures {len(sig_attack_prcs)} significant (early halt {self.do_early_halt})', 'halt_code': 'none'})
-                return ret
-
-            # Check if there are simply not very many different confidence values,
-            # because if so, then more attacks aren't going to help much because we
-            # aren't likely to get more different confidence values.
-            if len(sig_attack_prcs) < self.num_prc_measures:
-                ret.update({'halted':True, 'reason':f'all {len(sig_attack_prcs)} attack prc measures significant', 'halt_code': 'all_sig'})
-                return ret
-            
-            # Check to see if we aren't making significant improvement by reducing
-            # recall. If not we halt, but if we are, we increase num_prc_measures so
-            # as to dig out still lower recall values.
-            if ((sig_attack_prcs[-1] - sig_attack_prcs[-2] >= self.halt_min_prc_improvement)
-                and (sig_attack_prcs[-2] - sig_attack_prcs[-3] >= self.halt_min_prc_improvement)
-               ): 
-                self.num_prc_measures += 1
-                ret.update({'halted':False, 'reason':f'still improving at {len(sig_attack_prcs)} significant attack prc measures (early halt {self.do_early_halt})', 'halt_code': 'none'})
-                return ret
-            ret.update({'halted':True, 'reason':f'all {len(sig_attack_prcs)} attack prc measures significant with no improvement', 'halt_code': 'no_improve_all_sig'})
-            return ret
-        # If we get here, it means that there are some PRC measures that are
-        # not yet significant. This means that we have a chance to get better
-        # PRC scores with the set of confidence values we currently have.
-
-        # Let's not give up if we don't have many significant attack prc measures.
-        if len(sig_attack_prcs) < self.halt_min_significant_attack_prcs:
-            ret.update({'halted':False, 'reason':f'too few significant attack prc measures ({len(sig_attack_prcs)}) (early halt {self.do_early_halt})', 'halt_code': 'none'})
-            return ret
-        ret.update({'halted':False, 'reason':'halt conditions not met (early halt {self.do_early_halt})', 'halt_code': 'none'})
-        return ret
-
     # Following are the methods that use DataFiles
     def get_pre_discretized_column(self, secret_column: str) -> str:
         return self.df.get_pre_discretized_column(secret_column)
@@ -490,11 +431,12 @@ class ALCManager:
 
     # Following are the methods that use BasePredictor 
     def _init_cntl_and_build_model(self, known_columns: List[str], secret_column: str,  
-                                  ) -> None:
+                                  ) -> bool:
         is_assigned = self.df.assign_first_cntl_block()
         if is_assigned is False:
             raise ValueError("Error: Control block initialization failed")
-        self.df.check_and_fix_target_classes(secret_column)
+        if self.df.check_and_fix_target_classes(secret_column) is False:
+            return False
         df = self.df.orig
         self.model_name = self.base_pred.select_model(self.df.orig_all, known_columns, secret_column, self.get_column_classification_dict(), self.random_state)
         self.base_pred.build_model(df, self.random_state)
@@ -504,12 +446,14 @@ class ALCManager:
             # self.df.cntl contains the samples original data used for attack
             # So we want to anonymize self.df.orig but leave it in self.df.orig
             self.df.orig = _swap_anonymize(self.df.orig, self.prior_experiment_swap_fraction)
+        return True
 
     def _next_cntl_and_build_model(self, secret_column: str) -> bool:
         is_assigned = self.df.assign_next_cntl_block()
         if is_assigned is False:
             return False
-        self.df.check_and_fix_target_classes(secret_column)
+        if self.df.check_and_fix_target_classes(secret_column) is False:
+            return False
         df = self.df.orig
         self.base_pred.build_model(df)
         if self.prior_experiment_swap_fraction > 0:

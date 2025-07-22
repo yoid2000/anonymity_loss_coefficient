@@ -9,7 +9,6 @@ class _ParamGroup:
     halt_interval_thresh: float 
     halt_min_significant_attack_prcs: int 
     halt_min_prc_improvement: float 
-    halt_check_count: int 
     si_type: str 
     si_confidence: float 
     max_score_interval: float 
@@ -35,7 +34,6 @@ class ALCParams:
             halt_interval_thresh=0.1,
             halt_min_significant_attack_prcs=3,  # Must be at least 3
             halt_min_prc_improvement=0.01,
-            halt_check_count=20,
         )
         self.si = _ParamGroup(
             si_type='wilson_score_interval',

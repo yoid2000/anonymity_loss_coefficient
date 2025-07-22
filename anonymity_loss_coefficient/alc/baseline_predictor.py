@@ -78,11 +78,10 @@ class BaselinePredictor:
         self.onehot_columns = [col for col in self.known_columns if column_classifications.get(col) == 'categorical']
         self.non_onehot_columns = [col for col in self.known_columns if column_classifications.get(col) == 'continuous']
 
-        otop = self._detect_and_reclassify_correlated_categoricals(df)
+        self.otop = self._detect_and_reclassify_correlated_categoricals(df)
         
         # If a one-to-one predictor is found, use it instead of other models
-        if otop is not None:
-            self.otop = otop
+        if self.otop is not None:
             self.logger.info("Using OneToOnePredictor due to perfect 1-1 correlation")
             return "OneToOnePredictor"
 
@@ -407,17 +406,40 @@ class BaselinePredictor:
 
         model_name = type(self.model).__name__
 
-        if self.onehot_columns:
+        # Check for unknown categorical values before encoding
+        if self.onehot_columns and self.encoder is not None:
+            for col in self.onehot_columns:
+                if col in df_row.columns:
+                    value = df_row[col].iloc[0]
+                    # Check if this value was seen during training
+                    col_index = self.onehot_columns.index(col)
+                    known_categories = self.encoder.categories_[col_index]
+                    if value not in known_categories:
+                        self.logger.warning(f"Unknown categorical value '{value}' in column '{col}' during prediction. This may lead to unexpected results.")
+            
             X_cat = self.encoder.transform(df_row[self.onehot_columns])
         else:
             X_cat = np.empty((len(df_row), 0))
+            
         X_cont = df_row[self.non_onehot_columns].values if self.non_onehot_columns else np.empty((len(df_row), 0))
         X = np.hstack([X_cont, X_cat])
 
         prediction = self.model.predict(X)[0]
+        
+        # Validate that the prediction is among the classes seen during training
+        if hasattr(self.model, 'classes_'):
+            if prediction not in self.model.classes_:
+                self.logger.error(f"Model predicted class '{prediction}' which is not in training classes: {self.model.classes_}")
+                # Fallback to the most common class
+                prediction = self.model.classes_[0]
+        
         if hasattr(self.model, "predict_proba"):
             base_confidence = self.model.predict_proba(X)[0]
-            base_confidence = base_confidence[self.model.classes_.tolist().index(prediction)]
+            if prediction in self.model.classes_:
+                base_confidence = base_confidence[self.model.classes_.tolist().index(prediction)]
+            else:
+                base_confidence = 0.0  # Low confidence for fallback prediction
         else:
             base_confidence = None
+            
         return prediction, base_confidence

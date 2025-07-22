@@ -75,12 +75,12 @@ class AnonymityLossCoefficient:
         recall = min(recall, 1.0)
         recall = max(recall, 0.0)
         if recall <= self.recall_adjust_min_intercept:
-            return recall
+            return round(float(recall), 4)
         Rmin = self.recall_adjust_min_intercept
         alpha = self.recall_adjust_strength
         R = recall
         P = prec
-        return (1 - ((np.log10(R) / np.log10(Rmin)) ** alpha)) * P
+        return round(float((1 - ((np.log10(R) / np.log10(Rmin)) ** alpha)) * P), 4)
 
     def alc(self,
             p_base: Optional[float] = None,
@@ -99,7 +99,7 @@ class AnonymityLossCoefficient:
         if prc_attack is None and p_attack is not None and r_attack is not None:
             prc_attack = self.prc(p_attack, r_attack)
         if prc_base is not None and prc_attack is not None:
-            return self._prc_improve(prc_base, prc_attack)
+            return round(float(self._prc_improve(prc_base, prc_attack)), 4)
         return None
 
     # The following aren't necessary for the AnonymityLossCoefficient, but are just

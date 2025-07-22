@@ -8,6 +8,10 @@ from sklearn.preprocessing import KBinsDiscretizer
 from sklearn.model_selection import train_test_split
 import gc
 import logging
+import traceback  # Added for debugging
+import pprint    # Added for debugging
+import inspect   # Added for frame inspection
+
 # The following to suppress warnings from loky about CPU count
 import os
 os.environ["LOKY_MAX_CPU_COUNT"] = "8"  # Replace 8 with your number of logical cores
@@ -207,11 +211,200 @@ class DataFiles:
         
         encoder: LabelEncoder = self._encoders[column]
 
-        # Pass encoded_value directly to inverse_transform
-        original_value = encoder.inverse_transform(np.array([encoded_value]))
-
-        # Return the first element if only one value was decoded
-        return original_value[0] if len(original_value) == 1 else original_value
+        # =================================================================
+        # START DEBUGGING CODE - REMOVE AFTER ISSUE IS RESOLVED
+        # =================================================================
+        try:
+            # Pass encoded_value directly to inverse_transform
+            original_value = encoder.inverse_transform(np.array([encoded_value]))
+            
+            # Return the first element if only one value was decoded
+            return original_value[0] if len(original_value) == 1 else original_value
+            
+        except ValueError as e:
+            print("\n" + "="*80)
+            print("DEBUGGING: LabelEncoder inverse_transform error caught!")
+            print("="*80)
+            print(f"Error message: {e}")
+            print(f"Column: {column}")
+            print(f"Encoded value attempting to decode: {encoded_value}")
+            print(f"Encoded value type: {type(encoded_value)}")
+            print(f"Encoder classes: {encoder.classes_}")
+            print(f"Number of encoder classes: {len(encoder.classes_)}")
+            print(f"Min encoder class index: {0}")
+            print(f"Max encoder class index: {len(encoder.classes_) - 1}")
+            print(f"Is encoded_value in valid range? {0 <= encoded_value < len(encoder.classes_)}")
+            
+            # Check if orig_all, cntl, and orig have this column
+            print(f"\nColumn '{column}' presence:")
+            print(f"  In orig_all: {column in self.orig_all.columns if hasattr(self, 'orig_all') else 'orig_all not available'}")
+            if hasattr(self, 'orig_all') and column in self.orig_all.columns:
+                print(f"  orig_all[{column}] unique values: {sorted(self.orig_all[column].unique())}")
+                print(f"  orig_all[{column}] value counts: {self.orig_all[column].value_counts().to_dict()}")
+            
+            if hasattr(self, 'cntl') and self.cntl is not None:
+                print(f"  In cntl: {column in self.cntl.columns}")
+                if column in self.cntl.columns:
+                    print(f"  cntl[{column}] unique values: {sorted(self.cntl[column].unique())}")
+                    print(f"  cntl[{column}] value counts: {self.cntl[column].value_counts().to_dict()}")
+            else:
+                print(f"  cntl is None or not available")
+            
+            if hasattr(self, 'orig') and self.orig is not None:
+                print(f"  In orig: {column in self.orig.columns}")
+                if column in self.orig.columns:
+                    print(f"  orig[{column}] unique values: {sorted(self.orig[column].unique())}")
+                    print(f"  orig[{column}] value counts: {self.orig[column].value_counts().to_dict()}")
+            else:
+                print(f"  orig is None or not available")
+            
+            # Check anon dataframes
+            if hasattr(self, 'anon'):
+                for i, anon_df in enumerate(self.anon):
+                    if column in anon_df.columns:
+                        print(f"  In anon[{i}]: True")
+                        print(f"  anon[{i}][{column}] unique values: {sorted(anon_df[column].unique())}")
+                        print(f"  anon[{i}][{column}] value counts: {anon_df[column].value_counts().to_dict()}")
+                    else:
+                        print(f"  In anon[{i}]: False")
+            
+            # NEW: Add stack trace and variable dumps
+            print("\n" + "-"*60)
+            print("EXCEPTION STACK TRACE:")
+            print("-"*60)
+            traceback.print_exc()
+            
+            print("\n" + "-"*60)
+            print("FULL CALL STACK (complete execution path):")
+            print("-"*60)
+            # Get the complete stack from the beginning of execution
+            full_stack = traceback.extract_stack()
+            for frame in full_stack:
+                print(f"File: {frame.filename}")
+                print(f"  Line {frame.lineno}: {frame.name}")
+                print(f"  Code: {frame.line}")
+                print()
+            
+            print("\n" + "-"*60)
+            print("FORMATTED FULL STACK:")
+            print("-"*60)
+            # Alternative format - more compact
+            formatted_stack = traceback.format_stack()
+            for line in formatted_stack:
+                print(line.rstrip())
+            
+            print("\n" + "-"*60)
+            print("FRAME-SPECIFIC LOCAL VARIABLES:")
+            print("-"*60)
+            # Walk through the stack frames to find specific methods
+            current_frame = inspect.currentframe()
+            frame = current_frame
+            frame_count = 0
+            
+            while frame is not None and frame_count < 20:  # Limit to avoid infinite loops
+                frame_info = inspect.getframeinfo(frame)
+                function_name = frame.f_code.co_name
+                filename = frame_info.filename
+                
+                print(f"Frame {frame_count}: {function_name} in {filename}:{frame_info.lineno}")
+                
+                # Check if this is the _model_prediction method we're interested in
+                if function_name == '_model_prediction':
+                    print(f"  *** FOUND _model_prediction METHOD - CAPTURING LOCALS ***")
+                    frame_locals = dict(frame.f_locals)
+                    
+                    # Remove large objects to avoid overwhelming output
+                    filtered_locals = {}
+                    for key, value in frame_locals.items():
+                        if key == 'self':
+                            filtered_locals[key] = f"<DataFiles/ALCManager object at {id(value)}>"
+                        elif isinstance(value, pd.DataFrame):
+                            filtered_locals[key] = f"<DataFrame shape={value.shape}>"
+                        elif isinstance(value, np.ndarray):
+                            filtered_locals[key] = f"<ndarray shape={value.shape}, dtype={value.dtype}>"
+                        elif len(str(value)) > 200:
+                            filtered_locals[key] = f"<{type(value).__name__}> {str(value)[:200]}..."
+                        else:
+                            filtered_locals[key] = value
+                    
+                    pprint.pprint(filtered_locals, width=80, depth=3)
+                    print()
+                
+                # Also capture any other interesting methods
+                elif function_name in ['predictor', 'run_one_attack', 'decode_value']:
+                    print(f"  Capturing locals for {function_name}:")
+                    frame_locals = dict(frame.f_locals)
+                    
+                    # Filter locals for readability
+                    filtered_locals = {}
+                    for key, value in frame_locals.items():
+                        if key == 'self':
+                            filtered_locals[key] = f"<{type(value).__name__} object>"
+                        elif isinstance(value, (pd.DataFrame, pd.Series)):
+                            filtered_locals[key] = f"<{type(value).__name__} shape={getattr(value, 'shape', 'unknown')}>"
+                        elif isinstance(value, np.ndarray):
+                            filtered_locals[key] = f"<ndarray shape={value.shape}>"
+                        elif len(str(value)) > 100:
+                            filtered_locals[key] = f"<{type(value).__name__}> {str(value)[:100]}..."
+                        else:
+                            filtered_locals[key] = value
+                    
+                    pprint.pprint(filtered_locals, width=80, depth=2)
+                    print()
+                else:
+                    print(f"  (skipping locals for {function_name})")
+                
+                frame = frame.f_back
+                frame_count += 1
+            
+            # Clean up frame references to avoid memory leaks
+            del current_frame
+            del frame
+            
+            print("\n" + "-"*60)
+            print("LOCAL VARIABLES IN decode_value METHOD:")
+            print("-"*60)
+            local_vars = locals().copy()
+            # Remove large objects to avoid overwhelming output
+            if 'self' in local_vars:
+                del local_vars['self']
+            # Remove frame references we just created
+            for key in ['current_frame', 'frame', 'frame_locals', 'filtered_locals']:
+                if key in local_vars:
+                    del local_vars[key]
+            pprint.pprint(local_vars, width=80, depth=3)
+            
+            print("\n" + "-"*60)
+            print("SELF OBJECT STATE (key attributes):")
+            print("-"*60)
+            self_state = {
+                'disc_max': getattr(self, 'disc_max', 'Not set'),
+                'disc_bins': getattr(self, 'disc_bins', 'Not set'),
+                'discretize_in_place': getattr(self, 'discretize_in_place', 'Not set'),
+                'cntl_size': getattr(self, 'cntl_size', 'Not set'),
+                'cntl_block_index': getattr(self, 'cntl_block_index', 'Not set'),
+                'columns_for_discretization': getattr(self, 'columns_for_discretization', 'Not set'),
+                'new_discretized_columns': getattr(self, 'new_discretized_columns', 'Not set'),
+                'original_columns': getattr(self, 'original_columns', 'Not set'),
+                'encoders_keys': list(self._encoders.keys()) if hasattr(self, '_encoders') else 'Not set',
+                'column_classification_keys': list(self.column_classification.keys()) if hasattr(self, 'column_classification') else 'Not set',
+                'orig_all_shape': self.orig_all.shape if hasattr(self, 'orig_all') else 'Not set',
+                'orig_shape': self.orig.shape if hasattr(self, 'orig') and self.orig is not None else 'None or Not set',
+                'cntl_shape': self.cntl.shape if hasattr(self, 'cntl') and self.cntl is not None else 'None or Not set',
+                'anon_count': len(self.anon) if hasattr(self, 'anon') else 'Not set',
+            }
+            pprint.pprint(self_state, width=80)
+            
+            print("="*80)
+            print("HALTING EXECUTION DUE TO DEBUGGING")
+            print("="*80)
+            
+            # Halt execution
+            import sys
+            sys.exit(1)
+        # =================================================================
+        # END DEBUGGING CODE - REMOVE AFTER ISSUE IS RESOLVED
+        # =================================================================
 
 
     def _fit_encoders(self, columns_to_encode: List[str], dfs: List[pd.DataFrame]) -> Dict[str, LabelEncoder]:
@@ -227,7 +420,7 @@ class DataFiles:
 
         return encoders
 
-    def check_and_fix_target_classes(self, secret_col: str) -> None:
+    def check_and_fix_target_classes(self, secret_col: str) -> bool:
         all_classes = set(self.orig_all[secret_col].unique())
         if self.cntl is None:
             raise ValueError("self.cntl is None. Assign a control block before checking target classes.")
@@ -237,7 +430,7 @@ class DataFiles:
         train_classes = set(self.orig[secret_col].unique())
         
         if train_classes == all_classes and test_classes == all_classes:
-            return
+            return True
 
         # It can happen, esp. in small datasets, that the "test data" or the
         # "training data" does not contain all of the classes. When this occurs,
@@ -246,25 +439,30 @@ class DataFiles:
         # is not perfect, but won't distort the results by much.
         # Perform stratified sampling to ensure all classes are in both sets
         
-        self.logger.info(f"Adjusting cntl and orig to ensure all classes are present in both sets.")
-        # Get indices for stratified split
-        indices = self.orig_all.index.tolist()
-        target_values = self.orig_all[secret_col].tolist()
-        
-        # Calculate test size to match len(self.cntl)
-        test_size = len(self.cntl) / len(self.orig_all)
-        
-        # Generate a random seed for each call to ensure different splits
-        random_seed = random.randint(0, 2**32 - 1)
-        
-        # Perform stratified split with a random seed for each call
-        train_indices, test_indices = train_test_split(
-            indices, 
-            test_size=test_size, 
-            stratify=target_values, 
-            random_state=random_seed
-        )
-        
-        # Update cntl and orig with stratified samples
-        self.cntl = self.orig_all.loc[test_indices].reset_index(drop=True)
-        self.orig = self.orig_all.loc[train_indices].reset_index(drop=True)
+        try:
+            self.logger.info(f"Adjusting cntl and orig to ensure all classes are present in both sets.")
+            # Get indices for stratified split
+            indices = self.orig_all.index.tolist()
+            target_values = self.orig_all[secret_col].tolist()
+            
+            # Calculate test size to match len(self.cntl)
+            test_size = len(self.cntl) / len(self.orig_all)
+            
+            # Generate a random seed for each call to ensure different splits
+            random_seed = random.randint(0, 2**32 - 1)
+            
+            # Perform stratified split with a random seed for each call
+            train_indices, test_indices = train_test_split(
+                indices, 
+                test_size=test_size, 
+                stratify=target_values, 
+                random_state=random_seed
+            )
+            
+            # Update cntl and orig with stratified samples
+            self.cntl = self.orig_all.loc[test_indices].reset_index(drop=True)
+            self.orig = self.orig_all.loc[train_indices].reset_index(drop=True)
+            return True
+        except Exception as e:
+            self.logger.warning(f"Failed to perform stratified sampling for target classes: {e}")
+            return False
