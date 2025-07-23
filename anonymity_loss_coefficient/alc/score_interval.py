@@ -167,7 +167,7 @@ class ScoreInterval:
 
         if len(self.df_base) < 100 or len(self.df_attack) < 100:
             return {'halted': False,
-                    'reason': f'not enough samples',
+                    'reason': f"not enough samples",
                     'halt_code': 'none', 'data': None,}
         if len(self.df_base) % 50 != 0:
             return {'halted': False,
@@ -180,7 +180,7 @@ class ScoreInterval:
         if base_prc_res['n'] == 0 or attack_prc_res['n'] == 0:
             return {'halted': False,
                     'alc': data['alc'],
-                    'reason': f'significant intervals not reached (base: {base_prc_res['si']}, attack: {attack_prc_res['si']})',
+                    'reason': f"significant intervals not reached (base: {base_prc_res['si']}, attack: {attack_prc_res['si']})",
                     'halt_code': 'none',
                     'data': data,}
         if ((self.best_base_prc is None and self.best_attack_prc is not None) or
@@ -193,7 +193,7 @@ class ScoreInterval:
             self.best_attack_prc = attack_prc_res
             return {'halted': False,
                     'alc': data['alc'],
-                    'reason': f'first checkpoint: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}',
+                    'reason': f"first checkpoint: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
                     'halt_code': 'none',
                     'data': data,}
         # Beyond this point, each checkpoint is compared to the last
@@ -212,12 +212,12 @@ class ScoreInterval:
             self.logger.info(f"\nCheckpoint: {len(self.df_base)} predictions: {data}")
             return {'halted': True,
                     'alc': data['alc'],
-                    'reason': f'diminishing returns: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}',
+                    'reason': f"diminishing returns: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
                     'halt_code': 'diminishing_returns',
                     'data': data,}
         return {'halted': False,
                 'alc': data['alc'],
-                'reason': f'still making progress: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}',
+                'reason': f"still making progress: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
                 'halt_code': 'none',
                 'data': data,}
 
