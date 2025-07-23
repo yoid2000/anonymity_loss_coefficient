@@ -387,6 +387,7 @@ class BaselinePredictor:
                 y = y.astype(str)
 
         self.logger.info(f"    Building model with {len(X)} samples and {X.shape[1]} features")
+        self.logger.info(f"    Feature columns: {self.non_onehot_columns + self.onehot_columns}")
         self.model.fit(X, y)
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
