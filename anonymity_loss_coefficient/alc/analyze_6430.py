@@ -237,4 +237,4 @@ def analyze_6430(df, model):
         status = 'CORRECT' if true_val == pred_val else 'WRONG'
         print(f"  True: {true_label} | Pred: {pred_label} | Conf: {conf:.3f} | {status}")
     
-    print(f"\n=== ANALYZE_6430 START ===")
+    print(f"\n=== ANALYZE_6430 END ===")

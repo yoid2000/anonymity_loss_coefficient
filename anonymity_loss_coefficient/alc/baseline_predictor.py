@@ -403,7 +403,7 @@ class BaselinePredictor:
         for param, value in self.model.get_params().items():
             self.logger.info(f"  {param}: {value}")
 
-        analyze_6430(df, self.model)
+        analyze_6430(df, self.model, X=X, y=y)
         self.model.fit(X, y)
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
