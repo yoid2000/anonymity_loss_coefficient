@@ -60,6 +60,7 @@ def analyze_6430(df, model, X=None, y=None):
             print(f"  Mean: {df[feature].mean():.2f}")
             print(f"  Median: {df[feature].median():.2f}")
     
+    target_encoder = None
     if X is None:
         # Prepare data for modeling
         X = df[feature_cols].copy()
@@ -110,11 +111,16 @@ def analyze_6430(df, model, X=None, y=None):
             for val, count in target_counts.items():
                 pct = (count / len(y)) * 100
                 print(f"    {val}: {count} ({pct:.1f}%)")
+        # Split the data
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y_encoder, test_size=0.2, random_state=42, stratify=y_encoder
+        )
     
-    # Split the data
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
-    )
+    else:
+        # Split the data
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42, stratify=y
+        )
     
     print(f"\nTraining set size: {len(X_train)}")
     print(f"Test set size: {len(X_test)}")
