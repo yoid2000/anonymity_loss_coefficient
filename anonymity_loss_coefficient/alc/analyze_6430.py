@@ -8,7 +8,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
     
-def analyze_6430(df, model):
+def analyze_6430(df, model, X=None, y=None):
     print(f"Dataset shape: {df.shape}")
     print(f"Columns in dataset: {list(df.columns)}")
     
@@ -60,40 +60,41 @@ def analyze_6430(df, model):
             print(f"  Mean: {df[feature].mean():.2f}")
             print(f"  Median: {df[feature].median():.2f}")
     
-    # Prepare data for modeling
-    X = df[feature_cols].copy()
-    y = df[target_col].copy()
-    
-    # Handle missing values
-    initial_rows = len(df)
-    mask = X.notna().all(axis=1) & y.notna()
-    X = X[mask]
-    y = y[mask]
-    print(f"\nRows after removing missing values: {len(X)} (dropped {initial_rows - len(X)} rows)")
-    
-    if len(X) == 0:
-        print("No data remaining after removing missing values!")
-        exit(1)
-    
-    # Encode categorical variables
-    label_encoders = {}
-    for col in feature_cols:
-        if X[col].dtype in ['object', 'category']:
-            le = LabelEncoder()
-            X[col] = le.fit_transform(X[col].astype(str))
-            label_encoders[col] = le
-            print(f"Encoded categorical column: {col}")
-    
-    # Encode target variable if categorical
-    if y.dtype in ['object', 'category']:
-        target_encoder = LabelEncoder()
-        y_encoded = target_encoder.fit_transform(y)
-        print(f"Encoded categorical target column")
-        print(f"Target classes: {target_encoder.classes_}")
-    else:
-        y_encoded = y
-        target_encoder = None
-    
+    if X is None:
+        # Prepare data for modeling
+        X = df[feature_cols].copy()
+        y = df[target_col].copy()
+        
+        # Handle missing values
+        initial_rows = len(df)
+        mask = X.notna().all(axis=1) & y.notna()
+        X = X[mask]
+        y = y[mask]
+        print(f"\nRows after removing missing values: {len(X)} (dropped {initial_rows - len(X)} rows)")
+        
+        if len(X) == 0:
+            print("No data remaining after removing missing values!")
+            exit(1)
+        
+        # Encode categorical variables
+        label_encoders = {}
+        for col in feature_cols:
+            if X[col].dtype in ['object', 'category']:
+                le = LabelEncoder()
+                X[col] = le.fit_transform(X[col].astype(str))
+                label_encoders[col] = le
+                print(f"Encoded categorical column: {col}")
+        
+        # Encode target variable if categorical
+        if y.dtype in ['object', 'category']:
+            target_encoder = LabelEncoder()
+            y_encoded = target_encoder.fit_transform(y)
+            print(f"Encoded categorical target column")
+            print(f"Target classes: {target_encoder.classes_}")
+        else:
+            y_encoded = y
+            target_encoder = None
+        
     print(f"\nFinal dataset statistics:")
     print(f"  Feature matrix shape: {X.shape}")
     print(f"  Target vector shape: {y.shape}")
