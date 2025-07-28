@@ -14,11 +14,12 @@ os.environ["LOKY_MAX_CPU_COUNT"] = "4"
 
 class OneToOnePredictor:
     """
-    A predictor for features that have a 1-to-1 correspondence with the target.
+    A predictor for features that have a strong correspondence with the target.
+    For each feature value, uses the most frequent target value as the prediction.
     """
     def __init__(self, df: pd.DataFrame, feature: str, target: str) -> None:
         """
-        Initialize the predictor with a mapping from feature values to target values.
+        Initialize the predictor with a mapping from feature values to most frequent target values.
         
         Args:
             df: DataFrame containing the feature and target columns
@@ -28,18 +29,28 @@ class OneToOnePredictor:
         self.feature_name = feature
         self.target_name = target
         
-        # Create the mapping from feature values to target values
-        self.mapping = dict(zip(df[feature], df[target]))
+        # Create the mapping from feature values to most frequent target values
+        self.mapping = {}
+        grouped = df.groupby(feature)[target]
+        
+        for feature_value, target_values in grouped:
+            # Find the most frequent target value for this feature value
+            most_frequent_target = target_values.mode()
+            if len(most_frequent_target) > 0:
+                self.mapping[feature_value] = most_frequent_target.iloc[0]
+            else:
+                # Fallback if mode is empty (shouldn't happen but safety first)
+                self.mapping[feature_value] = target_values.iloc[0]
         
     def predict(self, feature_value: Any) -> Any:
         """
-        Predict the target value for a given feature value.
+        Predict the target value for a given feature value using the most frequent mapping.
         
         Args:
             feature_value: A value from the feature column
             
         Returns:
-            The corresponding target value
+            The most frequent target value for this feature value
             
         Raises:
             KeyError: If the feature value is not found in the mapping
