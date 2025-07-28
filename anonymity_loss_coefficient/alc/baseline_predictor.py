@@ -241,9 +241,9 @@ class BaselinePredictor:
             otop = OneToOnePredictor(df, feature=best_col, target=self.secret_column)
             self.logger.info(f"Selected OneToOnePredictor for column '{best_col}' with correlation ratio: {best_ratio:.6f} out of {len(otop_candidates)} candidates")
                 
-        # Reclassify identified columns as continuous
+        # Reclassify identified columns as not one-hot
         for col, reason in columns_to_reclassify:
-            self.logger.info(f"Reclassifying column '{col}' as continuous because: {reason}")
+            self.logger.info(f"Reclassifying column '{col}' as not one-hot because: {reason}")
             self.onehot_columns.remove(col)
             if col not in self.non_onehot_columns:
                 self.non_onehot_columns.append(col)
@@ -332,7 +332,7 @@ class BaselinePredictor:
             return False
             
     def _better_as_continuous(self, feature_series: pd.Series, target_series: pd.Series) -> bool:
-        """Check if feature has better predictive power as continuous vs categorical."""
+        """Check if feature has better predictive power as non-one-hot vs one-hot."""
         try:
             # Only apply to high-cardinality features (>5 unique values)
             if feature_series.nunique() <= 5:
@@ -378,7 +378,7 @@ class BaselinePredictor:
             model_params["random_state"] = random_state
         self.model = model_class(**model_params)
 
-        self.logger.info(f"Building model with categorical columns: {self.onehot_columns}, continuous columns: {self.non_onehot_columns}")
+        self.logger.info(f"Building model with onehot columns: {self.onehot_columns}, non-one-hot columns: {self.non_onehot_columns}")
         if self.onehot_columns:
             if self.encoder is None:
                 self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
@@ -398,6 +398,9 @@ class BaselinePredictor:
                 y = y.astype(str)
 
         self.logger.info(f"    Building model with {len(X)} samples and {X.shape[1]} features")
+        self.logger.info(f"\nModel Parameters:")
+        for param, value in self.model.get_params().items():
+            self.logger.info(f"  {param}: {value}")
 
         self.model.fit(X, y)
 
