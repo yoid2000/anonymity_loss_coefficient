@@ -5,6 +5,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.metrics import make_scorer, log_loss
+from analyze_6430 import analyze_6430
 import logging
 import numpy as np
 
@@ -402,6 +403,7 @@ class BaselinePredictor:
         for param, value in self.model.get_params().items():
             self.logger.info(f"  {param}: {value}")
 
+        analyze_6430(df, self.model)
         self.model.fit(X, y)
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
