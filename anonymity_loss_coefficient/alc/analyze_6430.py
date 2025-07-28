@@ -95,21 +95,21 @@ def analyze_6430(df, model, X=None, y=None):
             y_encoded = y
             target_encoder = None
         
-    print(f"\nFinal dataset statistics:")
-    print(f"  Feature matrix shape: {X.shape}")
-    print(f"  Target vector shape: {y.shape}")
-    print(f"  Target distribution:")
-    if target_encoder:
-        target_counts = pd.Series(y_encoded).value_counts().sort_index()
-        for encoded_val, count in target_counts.items():
-            original_val = target_encoder.classes_[encoded_val]
-            pct = (count / len(y_encoded)) * 100
-            print(f"    {original_val} (encoded as {encoded_val}): {count} ({pct:.1f}%)")
-    else:
-        target_counts = y.value_counts().sort_index()
-        for val, count in target_counts.items():
-            pct = (count / len(y)) * 100
-            print(f"    {val}: {count} ({pct:.1f}%)")
+        print(f"\nFinal dataset statistics:")
+        print(f"  Feature matrix shape: {X.shape}")
+        print(f"  Target vector shape: {y.shape}")
+        print(f"  Target distribution:")
+        if target_encoder:
+            target_counts = pd.Series(y_encoded).value_counts().sort_index()
+            for encoded_val, count in target_counts.items():
+                original_val = target_encoder.classes_[encoded_val]
+                pct = (count / len(y_encoded)) * 100
+                print(f"    {original_val} (encoded as {encoded_val}): {count} ({pct:.1f}%)")
+        else:
+            target_counts = y.value_counts().sort_index()
+            for val, count in target_counts.items():
+                pct = (count / len(y)) * 100
+                print(f"    {val}: {count} ({pct:.1f}%)")
     
     # Split the data
     X_train, X_test, y_train, y_test = train_test_split(
