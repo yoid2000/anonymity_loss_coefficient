@@ -5,7 +5,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.metrics import make_scorer, log_loss
-from analyze_6430 import analyze_6430
+from .analyze_6430 import analyze_6430
 import logging
 import numpy as np
 
