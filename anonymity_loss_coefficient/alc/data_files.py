@@ -112,6 +112,7 @@ class DataFiles:
 
         print(f"22: {self.orig_all['GoodStudent'].unique()}")
         self._transform_df(self.orig_all)
+        print(f"23: {self.orig_all['GoodStudent'].unique()}")
         for i, df in enumerate(self.anon):
             self._transform_df(df)
 
