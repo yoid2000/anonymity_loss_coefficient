@@ -455,7 +455,8 @@ class ALCManager:
         if self.df.check_and_fix_target_classes(secret_column) is False:
             return False
         df = self.df.orig
-        self.base_pred.build_model(df)
+        # TODO remove test_data when we are done with the experimentation
+        self.base_pred.build_model(df, test_data=self.df.cntl)
         if self.prior_experiment_swap_fraction > 0:
             # This is purely for experimentation and should not be used otherwise
             self.df.orig = _swap_anonymize(self.df.orig, self.prior_experiment_swap_fraction)

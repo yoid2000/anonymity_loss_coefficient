@@ -364,6 +364,7 @@ class BaselinePredictor:
     def build_model(
         self,
         df: pd.DataFrame,
+        test_data: Optional[pd.DataFrame] = None,
         random_state: Optional[int] = None
     ) -> None:
         # If using one-to-one predictor, no model building needed
@@ -403,7 +404,7 @@ class BaselinePredictor:
         for param, value in self.model.get_params().items():
             self.logger.info(f"  {param}: {value}")
 
-        analyze_6430(df, self.model, X=X, y=y)
+        analyze_6430(df, self.model, X=X, y=y, test_data=test_data)
         self.model.fit(X, y)
 
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:

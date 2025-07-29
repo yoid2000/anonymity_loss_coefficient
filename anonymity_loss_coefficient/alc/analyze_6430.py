@@ -8,7 +8,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
     
-def analyze_6430(df, model, X=None, y=None):
+def analyze_6430(df, model, X=None, y=None, test_data=None):
     print(f"Dataset shape: {df.shape}")
     print(f"Columns in dataset: {list(df.columns)}")
     
@@ -117,10 +117,19 @@ def analyze_6430(df, model, X=None, y=None):
         )
     
     else:
-        # Split the data
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
+        if test_data is None:
+            # Split the data
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=42, stratify=y
+            )
+        else:
+            # Use provided test data
+            X_train = X
+            y_train = y
+            X_test = test_data[feature_cols]
+            y_test = test_data[target_col]
+            #if target_encoder:
+                #y_test = target_encoder.transform(y_test)
     
     print(f"\nTraining set size: {len(X_train)}")
     print(f"Test set size: {len(X_test)}")
