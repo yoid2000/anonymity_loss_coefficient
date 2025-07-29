@@ -49,6 +49,7 @@ class ALCManager:
                        prior_experiment_swap_fraction: float = -1.0,
                        random_state: Optional[int] = None
                        ) -> None:
+        print(f"10: {df_original['GoodStudent'].unique()}")
         self.alcp = ALCParams()
         self.alcp.set_param(self.alcp.alcm, 'halt_thresh_low', halt_thresh_low)
         self.alcp.set_param(self.alcp.alcm, 'halt_thresh_high', halt_thresh_high)
@@ -80,6 +81,7 @@ class ALCManager:
         if self.logger is None:
             logger_path = os.path.join(results_path, 'alc_manager.log')
             self.logger = setup_logging(log_file_path=logger_path)
+        print(f"11: {df_original['GoodStudent'].unique()}")
         self.df = DataFiles(
                  df_original=df_original,
                  anon=anon,
@@ -91,6 +93,7 @@ class ALCManager:
                  logger=self.logger,
                  random_state=random_state,
         )
+        print(f"12: {self.df.orig_all['GoodStudent'].unique()}")
         self.prior_experiment_swap_fraction = prior_experiment_swap_fraction     # experimental purposes
         self.base_pred = BaselinePredictor(logger=self.logger)
         self.alc = AnonymityLossCoefficient(
