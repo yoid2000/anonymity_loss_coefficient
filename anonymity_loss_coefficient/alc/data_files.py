@@ -55,6 +55,7 @@ class DataFiles:
         else:
             raise ValueError("anon must be either a pandas DataFrame or a list of pandas DataFrames")
         self.orig_all = self.orig_all.dropna()
+        print(f"20: {self.orig_all['GoodStudent'].unique()}")
         self.anon = [df.dropna() for df in self.anon]
 
         # Find numeric columns with more than disc_max unique values in df_orig_all
