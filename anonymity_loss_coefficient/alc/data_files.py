@@ -102,6 +102,7 @@ class DataFiles:
         for i, df in enumerate(self.anon):
             self._discretize_df(df, discretizers)
 
+        print(f"21: {self.orig_all['GoodStudent'].unique()}")
         # set columns_to_encode to be all columns that are not integer and not
         # pre-discretized
         columns_to_encode = self.orig_all.select_dtypes(exclude=[np.int64, np.int32]).columns
@@ -109,6 +110,7 @@ class DataFiles:
             columns_to_encode = [col for col in columns_to_encode if col not in self.columns_for_discretization]
         self._encoders = self._fit_encoders(columns_to_encode, [self.orig_all] + self.anon)
 
+        print(f"22: {self.orig_all['GoodStudent'].unique()}")
         self._transform_df(self.orig_all)
         for i, df in enumerate(self.anon):
             self._transform_df(df)
