@@ -198,6 +198,43 @@ class DataFiles:
         for col, encoder in self._encoders.items():
             if col not in df.columns:
                 continue
+            
+            # DEBUG: Check before transformation
+            if col == 'GoodStudent':  # Replace with your boolean column name
+                print(f"DEBUG _transform_df - BEFORE transformation:")
+                print(f"  Column: {col}")
+                print(f"  Original values in df: {sorted(df[col].unique())}")
+                print(f"  Encoder classes: {encoder.classes_}")
+                print(f"  df[col] dtype: {df[col].dtype}")
+                print(f"  Is bool dtype: {pd.api.types.is_bool_dtype(df[col])}")
+            
+            # Transform the column using the encoder and keep it as integers
+            transformed_values = encoder.transform(df[col].astype(str))
+            
+            # DEBUG: Check transformation result
+            if col == 'GoodStudent':
+                print(f"  After encoder.transform: {sorted(transformed_values)}")
+                print(f"  Unique transformed values: {sorted(set(transformed_values))}")
+            
+            # cast to int if the column is bool or datetime
+            if pd.api.types.is_bool_dtype(df[col]) or pd.api.types.is_datetime64_any_dtype(df[col]):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", pd.errors.SettingWithCopyWarning)
+                    warnings.simplefilter("ignore", FutureWarning)
+                    df[col] = df[col].astype('int64')  # This line might be problematic
+                    
+            df.loc[:, col] = transformed_values.astype(int)
+            
+            # DEBUG: Check after assignment
+            if col == 'GoodStudent':
+                print(f"  After assignment: {sorted(df[col].unique())}")
+                print(f"  Final dtype: {df[col].dtype}")
+                print()
+
+    def _transform_df_orig(self, df: pd.DataFrame) -> None:
+        for col, encoder in self._encoders.items():
+            if col not in df.columns:
+                continue
             # Transform the column using the encoder and keep it as integers
             transformed_values = encoder.transform(df[col].astype(str))
             # cast to int if the column is bool or datetime
