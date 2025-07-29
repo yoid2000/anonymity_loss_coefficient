@@ -144,6 +144,10 @@ class ALCManager:
         caller must make an attack prediction in each loop. This method determines
         when enough predictions have been made to produce a good ALC score.
         """
+        #TODO
+        distinct_values = self.df.orig_all[secret_column].unique()
+        self.logger.info(f"1: Distinct values (up to 10) in column {secret_column}: {distinct_values[:10]}")
+        
         self.start_time = time.time()
         self.do_early_halt = False
         self.num_prc_measures = self.halt_min_significant_attack_prcs
@@ -323,6 +327,7 @@ class ALCManager:
         """
         # print up to 10 distinct values from self.df.orig_all[column]
         # Print up to 10 distinct values from the column
+        # TODO
         distinct_values = self.df.orig_all[column].unique()
         self.logger.info(f"Distinct values (up to 10) in column {column}: {distinct_values[:10]}")
 
