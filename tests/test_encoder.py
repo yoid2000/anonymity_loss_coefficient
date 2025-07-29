@@ -181,13 +181,15 @@ class TestEncoder:
         
         transformed = datafiles_instance._transform_df(data_with_nan)
         
-        # NaN values should remain as NaN (or null)
-        assert pd.isna(transformed.loc[1, 'categorical_col'])
-        assert pd.isna(transformed.loc[2, 'string_col'])
+        # NaN values should be encoded as -1 (our sentinel value)
+        assert transformed.loc[1, 'categorical_col'] == -1
+        assert transformed.loc[2, 'string_col'] == -1
         
-        # Non-NaN values should be encoded
-        assert not pd.isna(transformed.loc[0, 'categorical_col'])
-        assert not pd.isna(transformed.loc[0, 'string_col'])
+        # Non-NaN values should be encoded properly
+        assert isinstance(transformed.loc[0, 'categorical_col'], (int, np.integer))
+        assert isinstance(transformed.loc[0, 'string_col'], (int, np.integer))
+        assert transformed.loc[0, 'categorical_col'] >= 0
+        assert transformed.loc[0, 'string_col'] >= 0
     
     def test_transform_df_missing_column(self, datafiles_instance: DataFiles, sample_data: pd.DataFrame):
         """Test _transform_df when DataFrame is missing some encoded columns."""
@@ -333,3 +335,47 @@ class TestEncoder:
             encoded1 = encoders1[col].transform(test_values)
             encoded2 = encoders2[col].transform(test_values)
             np.testing.assert_array_equal(encoded1, encoded2)
+    
+    def test_decode_value_with_different_types(self, datafiles_instance: DataFiles, sample_data: pd.DataFrame):
+        """Test decode_value with different numeric types that might be produced by pandas/numpy."""
+        columns_to_encode = ['categorical_col', 'boolean_col']
+        dataframes = [datafiles_instance.orig_all] + datafiles_instance.anon
+        datafiles_instance._encoders = datafiles_instance._fit_encoders(columns_to_encode, dataframes)
+        
+        # Test with different types of encoded values
+        import numpy as np
+        
+        # Standard int
+        result1 = datafiles_instance.decode_value('categorical_col', 0)
+        assert str(result1) == 'A'
+        
+        # Numpy int64
+        result2 = datafiles_instance.decode_value('categorical_col', np.int64(1))
+        assert str(result2) == 'B'
+        
+        # Numpy int32
+        result3 = datafiles_instance.decode_value('categorical_col', np.int32(2))
+        assert str(result3) == 'C'
+        
+        # Test error cases
+        with pytest.raises(ValueError):
+            datafiles_instance.decode_value('categorical_col', 999)  # Out of range
+        
+        with pytest.raises(ValueError):
+            datafiles_instance.decode_value('categorical_col', -1)   # Negative
+    
+    def test_transform_df_produces_standard_int(self, datafiles_instance: DataFiles, sample_data: pd.DataFrame):
+        """Test that _transform_df produces standard int64 dtype for sklearn compatibility."""
+        columns_to_encode = ['categorical_col', 'boolean_col', 'string_col']
+        dataframes = [datafiles_instance.orig_all] + datafiles_instance.anon
+        datafiles_instance._encoders = datafiles_instance._fit_encoders(columns_to_encode, dataframes)
+        
+        transformed = datafiles_instance._transform_df(sample_data)
+        
+        # Check that encoded columns use standard int64 (not nullable Int64)
+        for col in columns_to_encode:
+            assert transformed[col].dtype == 'int64', f"Column {col} should have int64 dtype, got {transformed[col].dtype}"
+            
+            # Verify the values are proper integers that sklearn can handle
+            for val in transformed[col]:
+                assert isinstance(val, (int, np.integer)), f"Value {val} should be integer type, got {type(val)}"

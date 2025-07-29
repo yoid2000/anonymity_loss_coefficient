@@ -229,8 +229,16 @@ class DataFiles:
                 encoded_values = encoder.transform(non_null_values)
                 
                 # Create a new series with the same index as the original
-                encoded_series = pd.Series(index=df_transformed.index, dtype='Int64')  # Use nullable int
-                encoded_series[non_null_mask] = encoded_values
+                # Initialize with -1 for all values, then set the encoded ones
+                encoded_series = pd.Series(-1, index=df_transformed.index, dtype='int64')
+                
+                # Convert encoded_values to int64 and assign
+                if hasattr(encoded_values, 'astype'):
+                    # It's a numpy array
+                    encoded_series[non_null_mask] = encoded_values.astype('int64')
+                else:
+                    # Convert to numpy array first
+                    encoded_series[non_null_mask] = np.array(encoded_values, dtype='int64')
                 
                 # Replace the column in the DataFrame
                 df_transformed[col] = encoded_series
@@ -254,17 +262,61 @@ class DataFiles:
         
         return df_transformed
 
-    def decode_value(self, column: str, encoded_value: int) -> Any:
+    def decode_value(self, column: str, encoded_value: Any) -> Any:
+        """
+        Decode an encoded value back to its original form.
+        
+        Args:
+            column: The column name
+            encoded_value: The encoded integer value
+            
+        Returns:
+            The original value before encoding
+            
+        Raises:
+            ValueError: If the encoded value is invalid for the column
+        """
         if column not in self._encoders:
+            self.logger.debug(f"Column '{column}' not in encoders, returning as-is: {encoded_value}")
             return encoded_value
         
-        encoder: LabelEncoder = self._encoders[column]
-
-        # Pass encoded_value directly to inverse_transform
-        original_value = encoder.inverse_transform(np.array([encoded_value]))
+        encoder = self._encoders[column]
         
-        # Return the first element if only one value was decoded
-        return original_value[0] if len(original_value) == 1 else original_value
+        try:
+            # Convert encoded_value to standard Python int to ensure sklearn compatibility
+            if pd.isna(encoded_value):
+                # Handle NaN values - return None or the original NaN
+                return None
+            
+            # Convert to standard Python int (handles pandas Int64, numpy types, etc.)
+            if hasattr(encoded_value, 'item'):
+                # Handle numpy scalars
+                int_value = int(encoded_value.item())
+            else:
+                # Handle pandas/python types
+                int_value = int(encoded_value)
+            
+            # Validate the encoded value is within valid range
+            if int_value < 0 or int_value >= len(encoder.classes_):
+                raise ValueError(f"Encoded value {int_value} is out of range for column '{column}'. "
+                               f"Valid range: 0 to {len(encoder.classes_) - 1}")
+            
+            # Use inverse_transform with proper numpy array
+            original_value = encoder.inverse_transform(np.array([int_value], dtype=np.int32))[0]
+            
+            self.logger.debug(f"Decoded {column}: {encoded_value} -> {original_value}")
+            return original_value
+            
+        except (ValueError, TypeError, OverflowError) as e:
+            self.logger.error(f"Error decoding value {encoded_value} for column '{column}': {e}")
+            self.logger.error(f"Encoder classes: {encoder.classes_}")
+            self.logger.error(f"Type of encoded_value: {type(encoded_value)}")
+            raise ValueError(f"Cannot decode value {encoded_value} for column '{column}': {e}")
+        except IndexError as e:
+            self.logger.error(f"Index error decoding value {encoded_value} for column '{column}': {e}")
+            self.logger.error(f"Encoder classes: {encoder.classes_}")
+            self.logger.error(f"Valid range: 0 to {len(encoder.classes_) - 1}")
+            raise ValueError(f"Encoded value {encoded_value} is out of range for column '{column}'")
             
     def _fit_encoders(self, columns_to_encode: List[str], dfs: List[pd.DataFrame]) -> Dict[str, LabelEncoder]:
         """
