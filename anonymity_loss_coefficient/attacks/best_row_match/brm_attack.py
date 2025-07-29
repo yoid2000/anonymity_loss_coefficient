@@ -28,6 +28,9 @@ class BrmAttack:
                  match_method: str = 'gower',
                  ) -> None:
         # up to work with ML modeling
+        #TODO
+        print(f"5: {df_original['GoodStudent'].unique()}")
+
         self.max_num_anon_datasets = max_num_anon_datasets
         self.prior_experiment_swap_fraction = prior_experiment_swap_fraction
         self.flush = flush
@@ -68,11 +71,15 @@ class BrmAttack:
                                logger=self.logger,
                                prior_experiment_swap_fraction=self.prior_experiment_swap_fraction,
                                flush=self.flush)
+        # TODO
+        print(f"6: {self.alcm.df.orig_all['GoodStudent'].unique()}")
         # The known columns are the pre-discretized continuous columns and categorical
         # columns (i.e. all original columns). The secret columns are the discretized
         # continuous columns and categorical columns.
         self.all_known_columns = self.original_columns
         self.all_secret_columns = [self.alcm.get_discretized_column(col) for col in self.original_columns]
+        # TODO
+        print(f"7: {self.alcm.df.orig_all['GoodStudent'].unique()}")
         # Used in any given attack loop
         self.logger.info(f"There are {len(self.all_known_columns)} potential known columns:")
         self.logger.info(self.all_known_columns)

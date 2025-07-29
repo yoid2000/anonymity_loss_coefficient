@@ -326,7 +326,6 @@ class ALCManager:
         If that count is > 0.6, it returns the value and (1 - count).
         """
         # print up to 10 distinct values from self.df.orig_all[column]
-        # Print up to 10 distinct values from the column
         # TODO
         distinct_values = self.df.orig_all[column].unique()
         self.logger.info(f"Distinct values (up to 10) in column {column}: {distinct_values[:10]}")
