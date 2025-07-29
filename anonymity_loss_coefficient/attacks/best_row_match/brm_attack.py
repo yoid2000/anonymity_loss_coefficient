@@ -95,6 +95,10 @@ class BrmAttack:
             self.run_one_attack(secret_column, known_columns)
 
     def run_one_attack(self, secret_column: str, known_columns: List[str] = None) -> None:
+        #TODO
+        distinct_values = self.alcm.df.orig_all[secret_column].unique()
+        self.logger.info(f"2: Distinct values (up to 10) in column {secret_column}: {distinct_values[:10]}")
+
         # We do this again in case this is being called from the user
         secret_column = self.alcm.get_discretized_column(secret_column)
         if known_columns is None:
