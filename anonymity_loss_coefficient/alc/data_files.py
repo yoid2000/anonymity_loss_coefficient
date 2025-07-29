@@ -108,7 +108,7 @@ class DataFiles:
             columns_to_encode = [col for col in columns_to_encode if col not in self.columns_for_discretization]
         self._encoders = self._fit_encoders(columns_to_encode, [self.orig_all] + self.anon)
 
-        self._transform_df(self.orig_all)
+        self.orig_all = self._transform_df(self.orig_all)
 
         # DEBUG: Check after all encoding is complete
         secret_col = 'GoodStudent'  # Replace with your secret column
@@ -122,7 +122,7 @@ class DataFiles:
         quit()
     
         for i, df in enumerate(self.anon):
-            self._transform_df(df)
+            df = self._transform_df(df)
 
         # As a final step, we want to classify all columns as categorical or continuous
         for col in self.orig_all.columns:
@@ -202,7 +202,16 @@ class DataFiles:
                         warnings.simplefilter("ignore", category=pd.errors.SettingWithCopyWarning)
                         df.loc[:, f"{col}__discretized"] = bin_indices    
 
-    def _transform_df(self, df: pd.DataFrame) -> None:
+    def _transform_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        for col, encoder in self._encoders.items():
+            if col not in df.columns:
+                continue
+            transformed_values = encoder.transform(df[col].astype(str))
+            df = df.copy()  # Ensure we're working with a real DataFrame
+            df[col] = transformed_values.astype(int)
+        return df
+
+    def _transform_df_debug(self, df: pd.DataFrame) -> None:
         for col, encoder in self._encoders.items():
             if col not in df.columns:
                 continue
