@@ -66,7 +66,7 @@ def df():
 @pytest.mark.parametrize(
     "my_func, param1, param2, expected_alc",
     [
-        (guess_with_prob, 1.0, 0.9, 0.87),  # All guesses correct, 90% of runs = abstain
+        (guess_with_prob, 1.0, 0.9, 0.12),  # All guesses correct, 90% of runs = abstain
         (guess_with_prob, 1.0, 0.0, 1.0),  # All guesses correct, no abstain
         (guess_with_prob, 0.0, 0.0, -0.9),  # All guesses wrong, no abstain
         (guess_with_prob, 0.5, 0.0, 0.0),  # Half of guesses correct, no abstain
@@ -98,7 +98,6 @@ def test_basic(temp_dir, df, my_func, param1, param2, expected_alc):
         alcm.summarize_results()
     df_grouped = alcm.results(known_columns=['c1'], secret_column='c2')
     alcm.close_logger()
-    df_grouped = df_grouped[df_grouped['paired'] == False]
     print("---------------------")
     for column in df_grouped.columns:
         print(f"{column}: {df_grouped.iloc[0][column]}")

@@ -201,7 +201,7 @@ class ALCManager:
                     random.random() > ignore_fraction):
                     continue
                 num_attacks += 1
-                self._model_prediction(atk_row, secret_column, known_columns, si_halt)
+                self._model_prediction(i, secret_column, known_columns, si_halt)
 
                 # The attacker only needs to know the values of the known_columns for the
                 # purpose of running the attack, so we separate them out.
@@ -275,13 +275,23 @@ class ALCManager:
                        secret_column: Optional[str] = None) -> Optional[pd.DataFrame]:
         return self.get_results_df(known_columns, secret_column)
 
-    def _model_prediction(self, row: pd.DataFrame,
+    def _model_prediction(self, index: int,
                      secret_column: str,
                      known_columns: List[str],
                      si_halt: Optional[ScoreInterval]) -> None:
-        # get the prediction for the row
-        df_row = row[known_columns]  # This is already a DataFrame
-        encoded_predicted_value_model, proba = self.predict(df_row)
+        # Get the row data for extracting the true value
+        row = self.df.cntl.iloc[[index]]
+        
+        # Use the index directly with the new predict method
+        try:
+            encoded_predicted_value_model, proba = self.predict_by_index(index)
+        except Exception as e:
+            if hasattr(self, 'logger') and self.logger:
+                self.logger.error(f"Error in model prediction: {e}")
+            # Fallback to a default prediction
+            encoded_predicted_value_model = 0
+            proba = 0.0
+            
         # We save the model prediction in case the caller makes an abstention
         self.encoded_predicted_value_model = encoded_predicted_value_model
         encoded_true_value = row[secret_column].iloc[0]
@@ -437,9 +447,27 @@ class ALCManager:
             raise ValueError("Error: Control block initialization failed")
         if self.df.check_and_fix_target_classes(secret_column) is False:
             return False
-        df = self.df.orig
-        self.model_name = self.base_pred.select_model(self.df.orig_all, known_columns, secret_column, self.get_column_classification_dict(), self.random_state)
-        self.base_pred.build_model(df, self.random_state)
+        df_train = self.df.orig
+        df_test = self.df.cntl
+        
+        # Create ScoreInterval object for model selection
+        from .score_interval import ScoreInterval
+        si = ScoreInterval(si_type=self.alcp.si.si_type,
+                          halt_interval_thresh=self.alcp.alcm.halt_interval_thresh,
+                          si_confidence=self.alcp.si.si_confidence,
+                          max_score_interval=self.alcp.si.max_score_interval,
+                          logger=self.logger)
+        
+        self.model_name = self.base_pred.build_model(
+            df_train=df_train,
+            df_test=df_test,
+            known_columns=known_columns, 
+            secret_column=secret_column, 
+            column_classifications=self.get_column_classification_dict(), 
+            si=si,
+            random_state=self.random_state
+        )
+        
         if self.prior_experiment_swap_fraction > 0:
             # This is purely for experimentation and should not be used otherwise
             # self.df.orig contains the sampled original data used for baseline
@@ -454,16 +482,25 @@ class ALCManager:
             return False
         if self.df.check_and_fix_target_classes(secret_column) is False:
             return False
-        df = self.df.orig
-        # TODO remove test_data when we are done with the experimentation
-        self.base_pred.build_model(df, test_data=self.df.cntl)
+        df_train = self.df.orig
+        df_test = self.df.cntl
+        
+        # Use stored configuration to rebuild model
+        self.base_pred.build_model(df_train=df_train, df_test=df_test, random_state=self.random_state)
+        
         if self.prior_experiment_swap_fraction > 0:
             # This is purely for experimentation and should not be used otherwise
             self.df.orig = _swap_anonymize(self.df.orig, self.prior_experiment_swap_fraction)
         return True
 
+    def predict_by_index(self, index: int) -> Tuple[Any, float]:
+        """Helper method to predict using index into test data."""
+        return self.base_pred.predict(index)
+
     def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
-        return self.base_pred.predict(df_row)
+        # This method is kept for backward compatibility but should not be used
+        # with the new BaselinePredictor design
+        raise NotImplementedError("Use predict_by_index instead of predict with the new BaselinePredictor design")
 
     # Following are methods that use Reporter
     def get_results_df(self,

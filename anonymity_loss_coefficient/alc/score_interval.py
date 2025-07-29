@@ -100,11 +100,22 @@ class ScoreInterval:
             raise ValueError(f"Error: Invalid prediction type {pred_type}. Use 'base' or 'attack'")
         conf = f'{pred_type}_confidence'
         if pred_type == 'base':
-            df_sorted_pred = self.df_base.sort_values(by=conf, ascending=False)
+            return self.compute_best_prc(df=self.df_base, conf=conf)
         else:
-            df_sorted_pred = self.df_attack.sort_values(by=conf, ascending=False)
+            return self.compute_best_prc(df=self.df_attack, conf=conf)
+
+    def compute_best_prc(self, df: pd.DataFrame, conf: Optional[str] = 'confidence') -> Dict:
+        ''' This is a helper routine that computes the best PRC for a given set
+            of predictions and confidence scores.
+            
+            df is a DataFrame with columns 'prediction' and conf,
+            where conf is a string representing the confidence column name.
+
+            Returns a dictionary with the best PRC and related values.
+        '''
         max_prc = 0
         used_confidence = None
+        df_sorted_pred = df.sort_values(by=conf, ascending=False)
         total_rows = len(df_sorted_pred)
 
         for n in range(1, total_rows + 1):
