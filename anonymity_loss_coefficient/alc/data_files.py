@@ -113,6 +113,7 @@ class DataFiles:
         print(f"22: {self.orig_all['GoodStudent'].unique()}")
         self._transform_df(self.orig_all)
         print(f"23: {self.orig_all['GoodStudent'].unique()}")
+        quit()
         for i, df in enumerate(self.anon):
             self._transform_df(df)
 
@@ -213,7 +214,6 @@ class DataFiles:
             
             # DEBUG: Check transformation result
             if col == 'GoodStudent':
-                print(f"  After encoder.transform: {sorted(transformed_values)}")
                 print(f"  Unique transformed values: {sorted(set(transformed_values))}")
             
             # cast to int if the column is bool or datetime
