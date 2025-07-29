@@ -106,21 +106,10 @@ class DataFiles:
         columns_to_encode = self.orig_all.select_dtypes(exclude=[np.int64, np.int32]).columns
         if self.discretize_in_place is False:
             columns_to_encode = [col for col in columns_to_encode if col not in self.columns_for_discretization]
+
         self._encoders = self._fit_encoders(columns_to_encode, [self.orig_all] + self.anon)
 
         self.orig_all = self._transform_df(self.orig_all)
-
-        # DEBUG: Check after all encoding is complete
-        secret_col = 'GoodStudent'  # Replace with your secret column
-        if secret_col in self.orig_all.columns:
-            unique_vals = sorted(self.orig_all[secret_col].unique())
-            counts = self.orig_all[secret_col].value_counts().to_dict()
-            print(f"\nDEBUG: After all encoding - orig_all[{secret_col}]:")
-            print(f"  Unique values: {unique_vals}")
-            print(f"  Value counts: {counts}")
-            print(f"  Total rows: {len(self.orig_all)}")
-        quit()
-    
         for i, df in enumerate(self.anon):
             df = self._transform_df(df)
 
@@ -203,54 +192,67 @@ class DataFiles:
                         df.loc[:, f"{col}__discretized"] = bin_indices    
 
     def _transform_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Transform a DataFrame by encoding specified columns using fitted encoders.
+        
+        This method applies the LabelEncoders fitted in _fit_encoders() to transform
+        the values in the specified columns to integer codes.
+        
+        Args:
+            df: DataFrame to transform
+            
+        Returns:
+            Transformed DataFrame with encoded columns
+        """
+        # Create a copy to avoid modifying the original DataFrame
+        df_transformed = df.copy()
+        
         for col, encoder in self._encoders.items():
-            if col not in df.columns:
-                continue
-            transformed_values = encoder.transform(df[col].astype(str))
-            df = df.copy()  # Ensure we're working with a real DataFrame
-            df[col] = transformed_values.astype(int)
-        return df
-
-    def _transform_df_debug(self, df: pd.DataFrame) -> None:
-        for col, encoder in self._encoders.items():
-            if col not in df.columns:
+            if col not in df_transformed.columns:
+                # Column not in this DataFrame, skip
                 continue
             
-            if col == 'GoodStudent':  # Replace with your boolean column name
-                print(f"DEBUG _transform_df - BEFORE transformation:")
-                print(f"  Column: {col}")
-                print(f"  Original values in df: {sorted(df[col].unique())}")
-                print(f"  df shape: {df.shape}")
-                print(f"  Value counts: {df[col].value_counts().to_dict()}")
+            # Get the column values, handling NaN values
+            column_values = df_transformed[col]
+            non_null_mask = column_values.notna()
+            
+            if not non_null_mask.any():
+                # All values are NaN, skip this column
+                self.logger.warning(f"All values in column '{col}' are NaN, skipping encoding")
+                continue
+            
+            # Transform only non-null values
+            non_null_values = column_values[non_null_mask]
+            
+            try:
+                # Apply the encoder to non-null values
+                encoded_values = encoder.transform(non_null_values)
                 
-                # Check what astype(str) produces
-                str_values = df[col].astype(str)
-                print(f"  After astype(str): {sorted(str_values.unique())}")
-                print(f"  String value counts: {str_values.value_counts().to_dict()}")
+                # Create a new series with the same index as the original
+                encoded_series = pd.Series(index=df_transformed.index, dtype='Int64')  # Use nullable int
+                encoded_series[non_null_mask] = encoded_values
                 
-                print(f"  Encoder classes: {encoder.classes_}")
-            
-            # Transform the column using the encoder and keep it as integers
-            transformed_values = encoder.transform(df[col].astype(str))
-            
-            if col == 'GoodStudent':
-                print(f"  Unique transformed values: {sorted(set(transformed_values))}")
-                print(f"  Length check - input: {len(df[col])}, output: {len(transformed_values)}")
-
-    def _transform_df_orig(self, df: pd.DataFrame) -> None:
-        for col, encoder in self._encoders.items():
-            if col not in df.columns:
-                continue
-            # Transform the column using the encoder and keep it as integers
-            transformed_values = encoder.transform(df[col].astype(str))
-            # cast to int if the column is bool or datetime
-            if pd.api.types.is_bool_dtype(df[col]) or pd.api.types.is_datetime64_any_dtype(df[col]):
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", pd.errors.SettingWithCopyWarning)
-                    warnings.simplefilter("ignore", FutureWarning)
-                    df[col] = df[col].astype('int64')
-            df.loc[:, col] = transformed_values.astype(int)
-
+                # Replace the column in the DataFrame
+                df_transformed[col] = encoded_series
+                
+                # Debug logging
+                unique_original = sorted(non_null_values.unique(), key=str) if len(non_null_values.unique()) <= 10 else f"{len(non_null_values.unique())} unique values"
+                self.logger.debug(f"Transformed column '{col}': {unique_original} -> encoded values")
+                
+            except ValueError as e:
+                # Handle unknown values that weren't in the training data
+                self.logger.error(f"Error encoding column '{col}': {e}")
+                
+                # Try to handle unknown values by finding the closest match or using a default
+                unknown_values = set(non_null_values) - set(encoder.classes_)
+                if unknown_values:
+                    self.logger.warning(f"Unknown values in column '{col}': {unknown_values}")
+                    self.logger.warning("These values were not seen during encoder fitting")
+                
+                # For now, re-raise the error - in production you might want to handle this differently
+                raise
+        
+        return df_transformed
 
     def decode_value(self, column: str, encoded_value: int) -> Any:
         if column not in self._encoders:
@@ -264,51 +266,58 @@ class DataFiles:
         # Return the first element if only one value was decoded
         return original_value[0] if len(original_value) == 1 else original_value
             
-    def _fit_encoders_debug(self, columns_to_encode: List[str], dfs: List[pd.DataFrame]) -> Dict[str, LabelEncoder]:
+    def _fit_encoders(self, columns_to_encode: List[str], dfs: List[pd.DataFrame]) -> Dict[str, LabelEncoder]:
+        """
+        Fit LabelEncoders for specified columns across all DataFrames.
+        
+        This method ensures that all DataFrames use the same encoding for each column
+        by fitting each encoder on the combined unique values from all DataFrames.
+        
+        Args:
+            columns_to_encode: List of column names to encode
+            dfs: List of DataFrames (typically [self.orig_all] + self.anon)
+            
+        Returns:
+            Dictionary mapping column names to fitted LabelEncoder objects
+        """
         encoders = {}
+        
         for col in columns_to_encode:
+            # Collect all unique values from all DataFrames for this column
             all_values = []
+            
             for df in dfs:
                 if col in df.columns:
-                    values_to_add = df[col].astype(str).tolist()
-                    all_values.extend(values_to_add)
-                    
-                    # DEBUG for boolean column
-                    if col == 'GoodStudent':
-                        print(f"DEBUG _fit_encoders - {col}:")
-                        print(f"  Original column dtype: {df[col].dtype}")
-                        print(f"  Original unique values: {sorted(df[col].unique())}")
-                        print(f"  After astype(str): {sorted(set(values_to_add))}")
+                    # Get unique values from this DataFrame
+                    unique_vals = df[col].dropna().unique()
+                    all_values.extend(unique_vals)
             
-            unique_values = list(set(all_values))
+            # If no values found, skip this column
+            if not all_values:
+                self.logger.warning(f"No values found for column '{col}' across all DataFrames")
+                continue
             
-            # DEBUG for boolean column
-            if col == 'GoodStudent':
-                print(f"  Final unique_values for fitting: {sorted(unique_values)}")
-                print(f"  Type of unique_values[0]: {type(unique_values[0])}")
+            # Get unique values across all DataFrames
+            unique_values = pd.Series(all_values).unique()
             
+            # Sort for consistent encoding order (helps with debugging and reproducibility)
+            if unique_values.dtype == 'object':
+                # For string/object columns, sort as strings
+                unique_values = sorted(unique_values, key=str)
+            else:
+                # For numeric/boolean columns, sort normally
+                unique_values = sorted(unique_values)
+            
+            # Create and fit the encoder
             encoder = LabelEncoder()
             encoder.fit(unique_values)
             
-            # DEBUG for boolean column  
-            if col == 'GoodStudent':
-                print(f"  Encoder classes after fit: {encoder.classes_}")
-                print(f"  Type of encoder.classes_[0]: {type(encoder.classes_[0])}")
-            
             encoders[col] = encoder
-        return encoders
-
-    def _fit_encoders(self, columns_to_encode: List[str], dfs: List[pd.DataFrame]) -> Dict[str, LabelEncoder]:
-        encoders = {col: LabelEncoder() for col in columns_to_encode}
-
-        for col in columns_to_encode:
-            # Collect values from all DataFrames that contain the column
-            values = pd.concat(
-                [df[col] for df in dfs if col in df.columns]
-            ).unique()
-            # Fit the encoder on the unique values
-            encoders[col].fit(values)
-
+            
+            # Debug logging
+            self.logger.debug(f"Fitted encoder for column '{col}': {len(unique_values)} unique values")
+            self.logger.debug(f"  Encoder classes: {encoder.classes_}")
+        
         return encoders
 
     def check_and_fix_target_classes(self, secret_col: str) -> bool:
