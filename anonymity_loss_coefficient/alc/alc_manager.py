@@ -101,6 +101,7 @@ class ALCManager:
             recall_adjust_min_intercept=self.alcp.alc.recall_adjust_min_intercept,
             recall_adjust_strength=self.alcp.alc.recall_adjust_strength,
         )
+        print(f"13: {self.df.orig_all['GoodStudent'].unique()}")
         self.model_name = None
         self.random_state = random_state
         self.max_score_interval = self.alcp.si.max_score_interval
