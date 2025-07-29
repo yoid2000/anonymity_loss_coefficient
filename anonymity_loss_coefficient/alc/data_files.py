@@ -109,7 +109,18 @@ class DataFiles:
         self._encoders = self._fit_encoders(columns_to_encode, [self.orig_all] + self.anon)
 
         self._transform_df(self.orig_all)
+
+        # DEBUG: Check after all encoding is complete
+        secret_col = 'GoodStudent'  # Replace with your secret column
+        if secret_col in self.orig_all.columns:
+            unique_vals = sorted(self.orig_all[secret_col].unique())
+            counts = self.orig_all[secret_col].value_counts().to_dict()
+            print(f"\nDEBUG: After all encoding - orig_all[{secret_col}]:")
+            print(f"  Unique values: {unique_vals}")
+            print(f"  Value counts: {counts}")
+            print(f"  Total rows: {len(self.orig_all)}")
         quit()
+    
         for i, df in enumerate(self.anon):
             self._transform_df(df)
 
@@ -244,7 +255,7 @@ class DataFiles:
         # Return the first element if only one value was decoded
         return original_value[0] if len(original_value) == 1 else original_value
             
-    def _fit_encoders(self, columns_to_encode: List[str], dfs: List[pd.DataFrame]) -> Dict[str, LabelEncoder]:
+    def _fit_encoders_debug(self, columns_to_encode: List[str], dfs: List[pd.DataFrame]) -> Dict[str, LabelEncoder]:
         encoders = {}
         for col in columns_to_encode:
             all_values = []
@@ -278,7 +289,7 @@ class DataFiles:
             encoders[col] = encoder
         return encoders
 
-    def _fit_encoders_orig(self, columns_to_encode: List[str], dfs: List[pd.DataFrame]) -> Dict[str, LabelEncoder]:
+    def _fit_encoders(self, columns_to_encode: List[str], dfs: List[pd.DataFrame]) -> Dict[str, LabelEncoder]:
         encoders = {col: LabelEncoder() for col in columns_to_encode}
 
         for col in columns_to_encode:
