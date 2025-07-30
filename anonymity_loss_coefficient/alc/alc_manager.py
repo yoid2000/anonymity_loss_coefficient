@@ -92,7 +92,7 @@ class ALCManager:
                  random_state=random_state,
         )
         self.prior_experiment_swap_fraction = prior_experiment_swap_fraction     # experimental purposes
-        self.base_pred = BaselinePredictor(logger=self.logger)
+        self.base_pred = None
         self.alc = AnonymityLossCoefficient(
             prc_abs_weight=self.alcp.alc.prc_abs_weight,
             recall_adjust_min_intercept=self.alcp.alc.recall_adjust_min_intercept,
@@ -163,6 +163,7 @@ class ALCManager:
                 return
             decoded_ignore_value = self.decode_value(secret_column, ignore_value)
             self.logger.info(f"The value {decoded_ignore_value} constitutes {round((100*(1-ignore_fraction)),2)} % of column {secret_column}, so we'll ignore a proportional fraction of those values in the attacks so that our results are better balanced.")
+        self.base_pred = BaselinePredictor(logger=self.logger)
         si_halt = ScoreInterval(si_type=self.alcp.si.si_type,
                                 si_confidence=self.alcp.si.si_confidence,
                                 logger=self.logger)
@@ -174,6 +175,7 @@ class ALCManager:
             self.attack_in_progress = False
             pp.pprint(self.halt_info)
             self.rep.consolidate_results(self.halt_info['data'], secret_column, known_columns, self.halt_info['halt_code'], 0.0, 'none', self.alcp)
+            self.base_pred = None
             return
 
         num_attacks = 0
@@ -238,6 +240,7 @@ class ALCManager:
                 if self.halt_info['halted'] is True:
                     self.attack_in_progress = False
                     self.rep.consolidate_results(self.halt_info['data'], secret_column, known_columns, self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.model_name, self.alcp)
+                    self.base_pred = None
                     return
             is_assigned = self._next_cntl_and_build_model(secret_column)
             if is_assigned is False:
@@ -252,8 +255,10 @@ class ALCManager:
                         pp.pprint(self.halt_info)
                     else:
                         self.logger.warning("Exhausted rows before results were obtained. Ending attack without results.")
+                        self.base_pred = None
                         return
                 self.rep.consolidate_results(self.halt_info['data'], secret_column, known_columns, self.halt_info['halt_code'], self.halt_info['elapsed_time'], self.model_name, self.alcp)
+                self.base_pred = None
                 return
 
     def abstention(self) -> bool:
