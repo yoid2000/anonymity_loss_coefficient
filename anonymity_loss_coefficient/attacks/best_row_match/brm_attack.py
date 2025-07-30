@@ -85,7 +85,7 @@ class BrmAttack:
         self.logger.info("Columns are classified as:")
         self.logger.info(pp.pformat(self.alcm.get_column_classification_dict()))
 
-    def run_all_columns_attack(self, secret_columns: List[str] = None) -> None:
+    def run_all_columns_attack(self, secret_columns: Optional[List[str]] = None) -> None:
         '''
         Runs attacks assuming all columns except secret are known
         '''

@@ -162,12 +162,13 @@ class BaselinePredictor:
                 self.logger.warning(f"OneToOnePredictor failed: {e}")
         
         # Test ML models
+        self.logger.info("Determine best ML model:")
         for model_name, model in models:
             try:
                 df_pred_conf = self._build_ml_model_predictions(df_train, df_test, model)
                 prc_dict = self.si.compute_best_prc(df=df_pred_conf)
                 prc_score = prc_dict['prc']
-                self.logger.info(f"{model_name} PRC score: {prc_score:.4f}")
+                self.logger.info(f"    {model_name} PRC score: {prc_score:.4f}")
                 
                 if prc_score > best_prc:
                     best_prc = prc_score

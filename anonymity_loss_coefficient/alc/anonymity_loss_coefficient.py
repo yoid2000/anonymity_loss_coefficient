@@ -103,51 +103,6 @@ class AnonymityLossCoefficient:
             return round(float(self._prc_improve(prc_base, prc_attack)), 4)
         return None
 
-    def compute_best_prc(self, df: pd.DataFrame, conf: str) -> Dict:
-        ''' This is a helper routine that computes the best PRC for a given set
-            of predictions and confidence scores.
-            
-            df is a DataFrame with columns 'prediction' and conf,
-            where conf is a string representing the confidence column name.
-
-            Returns a dictionary with the best PRC and related values.
-        '''
-        max_prc = 0
-        used_confidence = None
-        df_sorted_pred = df.sort_values(by=conf, ascending=False)
-        total_rows = len(df_sorted_pred)
-
-        for n in range(1, total_rows + 1):
-            top_n_rows = df_sorted_pred.head(n)
-            correct_predictions = top_n_rows['prediction'].sum()
-            prec = correct_predictions / n
-            recall = n / total_rows
-            low, high = self.compute_precision_interval(n = n, precision = prec)
-            prec_interval = high - low
-            
-            if prec_interval < 0.1:
-                mid_prec = low + ((high - low) / 2)  # Use midpoint for precision
-                prc = self.alc.prc(prec=mid_prec, recall=recall)
-                if prc > max_prc:
-                    max_prc = prc
-                    used_confidence = top_n_rows.iloc[-1][conf]
-
-        # compute precision, recall, and prc for all rows with
-        # confidence >= used_confidence. Needed because the above loop may not have
-        # included all rows at the used_confidence level.
-        # If the following is changed, also change get_dummy_data()
-        res = self.get_basic_data(total_predict=total_rows)
-        if used_confidence is not None:
-            final_rows = df_sorted_pred[df_sorted_pred[conf] >= used_confidence]
-            final_correct = final_rows['prediction'].sum()
-            res['n'] = len(final_rows)
-            final_precision = final_correct / res['n'] if res['n'] > 0 else 0
-            res['si_low'], res['si_high'] = self.compute_precision_interval(n = res['n'], precision = final_precision)
-            res['si'] = round(res['si_high'] - res['si_low'], 4)
-            res['prec'] = round(res['si_low'] + ((res['si_high'] - res['si_low']) / 2), 4)  # Use midpoint for precision
-            res['recall'] = round(res['n'] / total_rows, 4)
-            res['prc'] = self.alc.prc(prec=res['prec'], recall=res['recall'])
-        return res
     # The following aren't necessary for the AnonymityLossCoefficient, but are just
     # for testing
     def prec_from_prc_recall(self, prc: float, recall: float) -> float:

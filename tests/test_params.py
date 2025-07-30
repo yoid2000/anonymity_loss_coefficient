@@ -10,8 +10,8 @@ def test_add_group_and_access():
 
 def test_set_param_existing_group():
     ap = ALCParams()
-    ap.set_param(ap.alcm, "halt_thresh_low", 0.5)
-    assert ap.alcm.halt_thresh_low == 0.5
+    ap.set_param(ap.alcm, "halt_low_acl", 0.5)
+    assert ap.alcm.halt_low_acl == 0.5
 
 def test_set_param_new_param_in_group():
     ap = ALCParams()
@@ -21,9 +21,9 @@ def test_set_param_new_param_in_group():
 
 def test_set_param_none_value():
     ap = ALCParams()
-    ap.set_param(ap.alcm, "halt_thresh_low", None)
+    ap.set_param(ap.alcm, "halt_low_acl", None)
     # Should not change the value
-    assert ap.alcm.halt_thresh_low == 0.25
+    assert ap.alcm.halt_low_acl == 0.25
             
 def test_add_group_then_set_params():
     ap = ALCParams()

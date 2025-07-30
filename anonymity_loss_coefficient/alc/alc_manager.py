@@ -26,11 +26,12 @@ class ALCManager:
                        flush: bool = False,
                        attack_tags: Optional[Dict[str, Any]] = None,
                        # ALCManager parameters
-                       halt_thresh_low: Optional[float] = None,
-                       halt_thresh_high: Optional[float] = None,
-                       halt_interval_thresh: Optional[float] = None,
-                       halt_min_significant_attack_prcs: Optional[int] = None,
-                       halt_min_prc_improvement: Optional[float] = None,
+                       halt_loose_low_acl: Optional[float] = None,
+                       halt_tight_low_acl: Optional[float] = None,
+                       halt_loose_high_acl: Optional[float] = None,
+                       halt_tight_high_acl: Optional[float] = None,
+                       halt_interval_tight: Optional[float] = None,
+                       halt_interval_loose: Optional[float] = None,
                        # AnonymityLossCoefficient parameters
                        prc_abs_weight: Optional[float] = None,
                        recall_adjust_min_intercept: Optional[float] = None,
@@ -44,17 +45,17 @@ class ALCManager:
                        # ScoreInterval parameters
                        si_type: Optional[str] = None,
                        si_confidence: Optional[float] = None,
-                       max_score_interval: Optional[float] = None,
 
                        prior_experiment_swap_fraction: float = -1.0,
                        random_state: Optional[int] = None
                        ) -> None:
         self.alcp = ALCParams()
-        self.alcp.set_param(self.alcp.alcm, 'halt_thresh_low', halt_thresh_low)
-        self.alcp.set_param(self.alcp.alcm, 'halt_thresh_high', halt_thresh_high)
-        self.alcp.set_param(self.alcp.alcm, 'halt_interval_thresh', halt_interval_thresh)
-        self.alcp.set_param(self.alcp.alcm, 'halt_min_significant_attack_prcs', halt_min_significant_attack_prcs)
-        self.alcp.set_param(self.alcp.alcm, 'halt_min_prc_improvement', halt_min_prc_improvement)
+        self.alcp.set_param(self.alcp.alcm, 'halt_loose_low_acl', halt_loose_low_acl)
+        self.alcp.set_param(self.alcp.alcm, 'halt_tight_low_acl', halt_tight_low_acl)
+        self.alcp.set_param(self.alcp.alcm, 'halt_loose_high_acl', halt_loose_high_acl)
+        self.alcp.set_param(self.alcp.alcm, 'halt_tight_high_acl', halt_tight_high_acl)
+        self.alcp.set_param(self.alcp.alcm, 'halt_interval_tight', halt_interval_tight)
+        self.alcp.set_param(self.alcp.alcm, 'halt_interval_loose', halt_interval_loose)
 
         self.alcp.set_param(self.alcp.alc, 'prc_abs_weight', prc_abs_weight)
         self.alcp.set_param(self.alcp.alc, 'recall_adjust_min_intercept', recall_adjust_min_intercept)
@@ -62,7 +63,6 @@ class ALCManager:
 
         self.alcp.set_param(self.alcp.si, 'si_type', si_type)
         self.alcp.set_param(self.alcp.si, 'si_confidence', si_confidence)
-        self.alcp.set_param(self.alcp.si, 'max_score_interval', max_score_interval)
 
         self.alcp.set_param(self.alcp.df, 'disc_max', disc_max)
         self.alcp.set_param(self.alcp.df, 'disc_bins', disc_bins)
@@ -100,12 +100,12 @@ class ALCManager:
         )
         self.model_name = None
         self.random_state = random_state
-        self.max_score_interval = self.alcp.si.max_score_interval
-        self.halt_thresh_low = self.alcp.alcm.halt_thresh_low
-        self.halt_thresh_high = self.alcp.alcm.halt_thresh_high
-        self.halt_interval_thresh = self.alcp.alcm.halt_interval_thresh
-        self.halt_min_significant_attack_prcs = self.alcp.alcm.halt_min_significant_attack_prcs
-        self.halt_min_prc_improvement = self.alcp.alcm.halt_min_prc_improvement
+        self.halt_loose_low_acl = self.alcp.alcm.halt_loose_low_acl
+        self.halt_tight_low_acl = self.alcp.alcm.halt_tight_low_acl
+        self.halt_loose_high_acl = self.alcp.alcm.halt_loose_high_acl
+        self.halt_tight_high_acl = self.alcp.alcm.halt_tight_high_acl
+        self.halt_interval_tight = self.alcp.alcm.halt_interval_tight
+        self.halt_interval_loose = self.alcp.alcm.halt_interval_loose
         self.attack_in_progress = False
 
         self.rep = Reporter(results_path=results_path,
@@ -147,7 +147,6 @@ class ALCManager:
         
         self.start_time = time.time()
         self.do_early_halt = False
-        self.num_prc_measures = self.halt_min_significant_attack_prcs
         # First check if we have already run this attack.
         if self.rep.already_attacked(secret_column, known_columns):
             self.logger.info(f"Already ran attack on {secret_column} with known columns {known_columns}. Skipping.")
@@ -165,9 +164,7 @@ class ALCManager:
             decoded_ignore_value = self.decode_value(secret_column, ignore_value)
             self.logger.info(f"The value {decoded_ignore_value} constitutes {round((100*(1-ignore_fraction)),2)} % of column {secret_column}, so we'll ignore a proportional fraction of those values in the attacks so that our results are better balanced.")
         si_halt = ScoreInterval(si_type=self.alcp.si.si_type,
-                                halt_interval_thresh=self.alcp.alcm.halt_interval_thresh,
                                 si_confidence=self.alcp.si.si_confidence,
-                                max_score_interval=self.alcp.si.max_score_interval,
                                 logger=self.logger)
 
         # Initialize the first set of control rows
@@ -223,7 +220,14 @@ class ALCManager:
                                 encoded_true_value=encoded_true_value,
                                 attack_confidence=self.prediction_confidence,
                                 si_halt=si_halt)
-                self.halt_info = si_halt.ok_to_halt()
+                self.halt_info = si_halt.ok_to_halt(
+                                        halt_interval_tight = self.halt_interval_tight,
+                                        halt_interval_loose = self.halt_interval_loose,
+                                        halt_loose_low_acl = self.halt_loose_low_acl,
+                                        halt_loose_high_acl = self.halt_loose_high_acl,
+                                        halt_tight_low_acl = self.halt_tight_low_acl,
+                                        halt_tight_high_acl = self.halt_tight_high_acl
+                                    )
                 self.halt_info.update({'num_attacks': num_attacks})
                 self.logger.debug(pp.pformat(self.halt_info))
                 end_time = time.time()
@@ -400,31 +404,6 @@ class ALCManager:
             confidence = attack_confidence
         si_halt.add_prediction(prediction, confidence, predict_type)
 
-    def _get_significant_attack_prcs(self, alc_scores: List[Dict[str, Any]]) -> List[float]:
-        attack_prcs = []
-        alc_scores = sorted(alc_scores, key=lambda x: x['attack_recall'], reverse=True)
-        for score in alc_scores:
-            if score['attack_si'] > self.halt_interval_thresh:
-                return attack_prcs
-            attack_prcs.append(score['attack_prc'])
-        return attack_prcs
-
-    def _check_for_early_halt(self, alc_scores: List[Dict[str, Any]]) -> str:
-        early_halt_high = 0
-        early_halt_low = 0
-        for score in alc_scores:
-            if score['alc_high'] < self.halt_thresh_low:
-                early_halt_low += 1
-            elif score['alc_low'] > self.halt_thresh_high:
-                early_halt_high += 1
-            else:
-                return 'none'
-        if early_halt_high == len(alc_scores):
-            return 'high'
-        elif early_halt_low == len(alc_scores):
-            return 'low'
-        return 'none'
-
     # Following are the methods that use DataFiles
     def get_pre_discretized_column(self, secret_column: str) -> str:
         return self.df.get_pre_discretized_column(secret_column)
@@ -455,9 +434,7 @@ class ALCManager:
         # Create ScoreInterval object for model selection
         from .score_interval import ScoreInterval
         si = ScoreInterval(si_type=self.alcp.si.si_type,
-                          halt_interval_thresh=self.alcp.alcm.halt_interval_thresh,
                           si_confidence=self.alcp.si.si_confidence,
-                          max_score_interval=self.alcp.si.max_score_interval,
                           logger=self.logger)
         
         self.model_name = self.base_pred.build_model(

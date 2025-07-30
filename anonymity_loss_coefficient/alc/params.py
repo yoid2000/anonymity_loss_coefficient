@@ -4,11 +4,12 @@ class _ParamGroup:
     """A simple namespace for parameter grouping."""
     # Type hints
     prc_abs_weight: float  
-    halt_thresh_low: float 
-    halt_thresh_high: float 
-    halt_interval_thresh: float 
-    halt_min_significant_attack_prcs: int 
-    halt_min_prc_improvement: float 
+    halt_loose_low_acl: float 
+    halt_loose_high_acl: float 
+    halt_tight_low_acl: float 
+    halt_tight_high_acl: float 
+    halt_interval_tight: float 
+    halt_interval_loose: float 
     si_type: str 
     si_confidence: float 
     max_score_interval: float 
@@ -29,11 +30,12 @@ class ALCParams:
     def __init__(self):
         # Initialize with default groups
         self.alcm = _ParamGroup(
-            halt_thresh_low=0.25,
-            halt_thresh_high=0.9,
-            halt_interval_thresh=0.1,
-            halt_min_significant_attack_prcs=3,  # Must be at least 3
-            halt_min_prc_improvement=0.01,
+            halt_loose_low_acl = 0.0,
+            halt_loose_high_acl = 0.9,
+            halt_tight_low_acl = 0.0,
+            halt_tight_high_acl = 0.95,
+            halt_interval_tight = 0.1,
+            halt_interval_loose = 0.25,
         )
         self.si = _ParamGroup(
             si_type='wilson_score_interval',

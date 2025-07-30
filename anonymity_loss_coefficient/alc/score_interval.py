@@ -9,8 +9,6 @@ from .anonymity_loss_coefficient import AnonymityLossCoefficient
 class ScoreInterval:
     def __init__(self, si_type: str,
                        si_confidence: float,
-                       halt_interval_thresh: float,
-                       max_score_interval: float,
                        logger: logging.Logger = None,
                        ) -> None:
         if si_type not in self.valid_measures():
@@ -21,8 +19,6 @@ class ScoreInterval:
         self.progress = []
         self.best_base_prc = None
         self.best_attack_prc = None
-        self.halt_interval_thresh = halt_interval_thresh
-        self.max_score_interval = max_score_interval
         self.si_type = si_type
         self.si_confidence = si_confidence
         self.df_base = pd.DataFrame(columns=['prediction', 'base_confidence'])
@@ -95,16 +91,20 @@ class ScoreInterval:
             attack_data=self.get_basic_data()
         )
 
-    def _compute_best_prc(self, pred_type: str) -> Dict:
+    def _compute_best_prc(self,
+                          pred_type: str,
+                          max_prec_interval: float) -> Dict:
         if pred_type not in ['base', 'attack']:
             raise ValueError(f"Error: Invalid prediction type {pred_type}. Use 'base' or 'attack'")
         conf = f'{pred_type}_confidence'
         if pred_type == 'base':
-            return self.compute_best_prc(df=self.df_base, conf=conf)
+            return self.compute_best_prc(df=self.df_base, conf=conf, max_prec_interval=max_prec_interval)
         else:
-            return self.compute_best_prc(df=self.df_attack, conf=conf)
+            return self.compute_best_prc(df=self.df_attack, conf=conf, max_prec_interval=max_prec_interval)
 
-    def compute_best_prc(self, df: pd.DataFrame, conf: Optional[str] = 'confidence') -> Dict:
+    def compute_best_prc(self, df: pd.DataFrame,
+                         conf: str = 'confidence',
+                         max_prec_interval: float = 0.1) -> Dict:
         ''' This is a helper routine that computes the best PRC for a given set
             of predictions and confidence scores.
             
@@ -126,7 +126,7 @@ class ScoreInterval:
             low, high = self.compute_precision_interval(n = n, precision = prec)
             prec_interval = high - low
             
-            if prec_interval < 0.1:
+            if prec_interval < max_prec_interval:
                 mid_prec = low + ((high - low) / 2)  # Use midpoint for precision
                 prc = self.alc.prc(prec=mid_prec, recall=recall)
                 if prc > max_prc:
@@ -160,35 +160,70 @@ class ScoreInterval:
             data[prefix + key] = value
         data['alc'] = self.alc.alc(p_base=data['base_prec'], r_base=data['base_recall'],
                            p_attack=data['attack_prec'], r_attack=data['attack_recall'])
+        data['alc_early_high'] = self.alc.alc(p_base=data['base_si_high'],
+                                              r_base=data['base_recall'],
+                                              p_attack=data['attack_si_low'],
+                                              r_attack=data['attack_recall'])
+        data['alc_early_low'] = self.alc.alc(p_base=data['base_si_low'],
+                                             r_base=data['base_recall'],
+                                             p_attack=data['attack_si_high'],
+                                             r_attack=data['attack_recall'])
         return data
 
-    def ok_to_halt(self) -> Dict[str, Any]:
+    def ok_to_halt(self,
+                   min_samples: int = 50,
+                   sample_period: int = 25,
+                   halt_interval_tight: float = 0.1,
+                   halt_interval_loose: float = 0.25,
+                   halt_loose_low_acl: float = 0.0,
+                   halt_loose_high_acl: float = 0.9,
+                   halt_tight_low_acl: float = 0.25,
+                   halt_tight_high_acl: float = 0.95,
+                   ) -> Dict[str, Any]:
         ''' Monitors the progress of the attack and baseline, and determines if
         the results of both are significant enough to halt the predictor loop.
         Operates by peridocally computing the best PRC scores for both attack
         and baseline using _compute_best_prc(), and checking for
         diminishing returns in improving PRC.
-        It makes its first prc measures when there are 100 predictions. Subsequently,
-        it measures prcs every 50 additional predictions, and compares the prc values
+        It makes its first prc measures when there are min_samples predictions. Subsequently,
+        it measures prcs every sample_period additional predictions, and compares the prc values
         to the prior measures.
         '''
         if len(self.df_base) != len(self.df_attack):
             # throw and exception
             raise ValueError(f"Error: The number of base and attack predictions are not the same. Base: {len(self.df_base)}, Attack: {len(self.df_attack)}")
 
-        if len(self.df_base) < 100 or len(self.df_attack) < 100:
+        if len(self.df_base) < min_samples or len(self.df_attack) < min_samples:
             return {'halted': False,
                     'reason': f"not enough samples",
                     'halt_code': 'none', 'data': None,}
-        if len(self.df_base) % 50 != 0:
+        if len(self.df_base) % sample_period != 0:
             return {'halted': False,
                     'reason': f'not measure checkpoint',
                     'halt_code': 'none', 'data': None,}
-        base_prc_res = self._compute_best_prc('base')
-        attack_prc_res = self._compute_best_prc('attack')
+        # First see if we can get a tight confidence interval
+        base_prc_res = self._compute_best_prc(pred_type='base', max_prec_interval=halt_interval_tight)
+        attack_prc_res = self._compute_best_prc(pred_type='attack', max_prec_interval=halt_interval_tight)
         data = self._compile_data(base_prc_res, attack_prc_res)
         self.logger.info(f"\nCheckpoint: {len(self.df_base)} predictions: {data}")
         if base_prc_res['n'] == 0 or attack_prc_res['n'] == 0:
+            # We couldn't get a tight confidence interval, so let's get a loose one
+            # and see if we can early halt
+            base_prc_res = self._compute_best_prc(pred_type='base', max_prec_interval=halt_interval_loose)
+            attack_prc_res = self._compute_best_prc(pred_type='attack', max_prec_interval=halt_interval_loose)
+            data = self._compile_data(base_prc_res, attack_prc_res)
+            if data['alc_early_high'] > halt_loose_high_acl:
+                return {'halted': True,
+                        'alc': data['alc'],
+                        'reason': f"loose early halt from high alc: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
+                        'halt_code': 'early_high_loose',
+                        'data': data,}
+            if data['alc_early_low'] < halt_loose_low_acl:
+                return {'halted': True,
+                        'alc': data['alc'],
+                        'reason': f"loose early halt from low alc: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
+                        'halt_code': 'early_low_loose',
+                        'data': data,}
             return {'halted': False,
                     'alc': data['alc'],
                     'reason': f"significant intervals not reached (base: {base_prc_res['si']}, attack: {attack_prc_res['si']})",
@@ -197,6 +232,20 @@ class ScoreInterval:
         if ((self.best_base_prc is None and self.best_attack_prc is not None) or
            (self.best_base_prc is not None and self.best_attack_prc is None)):
             raise ValueError("Error: Only one of self.best_base_prc and self.best_attack_prc is None. This should not happen.")
+        # Determine if we can early halt from the tight confidence intervals
+        if data['alc'] < halt_tight_low_acl:
+            return {'halted': True,
+                    'alc': data['alc'],
+                    'reason': f"tight early halt from low alc: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
+                    'halt_code': 'early_low_tight',
+                    'data': data,}
+        if data['alc'] > halt_tight_high_acl:
+            return {'halted': True,
+                    'alc': data['alc'],
+                    'reason': f"tight early halt from high alc: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
+                    'halt_code': 'early_high_tight',
+                    'data': data,}
+        # No early halt, so we need to check for diminishing returns
         if self.best_base_prc is None:
             # First checkpoint
             self.progress.append({'base_res': base_prc_res, 'attack_res': attack_prc_res})

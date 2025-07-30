@@ -97,9 +97,9 @@ class DataFiles:
 
 
         # Discretize the columns in df_orig_all and anon using the same bin widths
-        self._discretize_df(self.orig_all, discretizers)
+        self.orig_all = self._discretize_df(self.orig_all, discretizers)
         for i, df in enumerate(self.anon):
-            self._discretize_df(df, discretizers)
+            self.anon[i] = self._discretize_df(df, discretizers)
 
         # set columns_to_encode to be all columns that are not integer and not
         # pre-discretized
@@ -177,7 +177,7 @@ class DataFiles:
                 return secret_column.replace("__discretized", "")
         return secret_column
 
-    def _discretize_df(self, df: pd.DataFrame, discretizers: Dict[str, KBinsDiscretizer]) -> None:
+    def _discretize_df(self, df: pd.DataFrame, discretizers: Dict[str, KBinsDiscretizer]) -> pd.DataFrame:
         for col in self.columns_for_discretization:
             if col in df.columns and col in discretizers:
                 discretizer = discretizers[col]
@@ -190,6 +190,7 @@ class DataFiles:
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore", category=pd.errors.SettingWithCopyWarning)
                         df.loc[:, f"{col}__discretized"] = bin_indices    
+        return df
 
     def _transform_df(self, df: pd.DataFrame) -> pd.DataFrame:
         """
