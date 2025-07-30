@@ -379,3 +379,47 @@ class TestEncoder:
             # Verify the values are proper integers that sklearn can handle
             for val in transformed[col]:
                 assert isinstance(val, (int, np.integer)), f"Value {val} should be integer type, got {type(val)}"
+    
+    def test_all_dataframes_properly_encoded(self, datafiles_instance: DataFiles):
+        """Test that both orig_all and anon DataFrames are properly encoded when simulating DataFiles.__init__."""
+        # Create test data with string values
+        orig_data = pd.DataFrame({
+            'test_col': ['A', 'B', 'C'],
+            'numeric_col': [1, 2, 3]
+        })
+        
+        anon_data = pd.DataFrame({
+            'test_col': ['B', 'C', 'A'],
+            'numeric_col': [4, 5, 6]
+        })
+        
+        # Reset the instance
+        datafiles_instance.orig_all = orig_data.copy()
+        datafiles_instance.anon = [anon_data.copy()]
+        datafiles_instance._encoders = {}
+        
+        # Simulate the encoding process from DataFiles.__init__
+        columns_to_encode = ['test_col']
+        datafiles_instance._encoders = datafiles_instance._fit_encoders(columns_to_encode, [datafiles_instance.orig_all] + datafiles_instance.anon)
+        
+        # Transform all DataFrames (testing the critical fix)
+        datafiles_instance.orig_all = datafiles_instance._transform_df(datafiles_instance.orig_all)
+        for i, df in enumerate(datafiles_instance.anon):
+            datafiles_instance.anon[i] = datafiles_instance._transform_df(df)  # This was the bug - previously just assigned to df
+        
+        # Verify all DataFrames are properly encoded
+        assert datafiles_instance.orig_all['test_col'].dtype == 'int64'
+        assert datafiles_instance.anon[0]['test_col'].dtype == 'int64'
+        
+        # Verify all values are integers (not strings)
+        for val in datafiles_instance.orig_all['test_col']:
+            assert isinstance(val, (int, np.integer)), f"orig_all contains non-integer: {val} (type: {type(val)})"
+        
+        for val in datafiles_instance.anon[0]['test_col']:
+            assert isinstance(val, (int, np.integer)), f"anon[0] contains non-integer: {val} (type: {type(val)})"
+        
+        # Verify decoding works with the encoded values
+        for df_name, df in [("orig_all", datafiles_instance.orig_all), ("anon[0]", datafiles_instance.anon[0])]:
+            for encoded_val in df['test_col'].unique():
+                decoded = datafiles_instance.decode_value('test_col', encoded_val)
+                assert decoded in ['A', 'B', 'C'], f"Unexpected decoded value: {decoded} from {encoded_val} in {df_name}"

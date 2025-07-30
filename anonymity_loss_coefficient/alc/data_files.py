@@ -111,7 +111,7 @@ class DataFiles:
 
         self.orig_all = self._transform_df(self.orig_all)
         for i, df in enumerate(self.anon):
-            df = self._transform_df(df)
+            self.anon[i] = self._transform_df(df)
 
         # As a final step, we want to classify all columns as categorical or continuous
         for col in self.orig_all.columns:
