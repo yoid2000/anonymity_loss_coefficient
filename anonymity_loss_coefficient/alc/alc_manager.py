@@ -38,6 +38,7 @@ class ALCManager:
                        recall_adjust_strength: Optional[float] = None,
                        # DataFiles parameters
                        disc_max: Optional[int] = None,
+                       disc_min: Optional[int] = None,
                        disc_bins: Optional[int] = None,
                        discretize_in_place: Optional[bool] = None,
                        max_cntl_size: Optional[int] = None,
@@ -65,6 +66,7 @@ class ALCManager:
         self.alcp.set_param(self.alcp.si, 'si_confidence', si_confidence)
 
         self.alcp.set_param(self.alcp.df, 'disc_max', disc_max)
+        self.alcp.set_param(self.alcp.df, 'disc_min', disc_min)
         self.alcp.set_param(self.alcp.df, 'disc_bins', disc_bins)
         self.alcp.set_param(self.alcp.df, 'discretize_in_place', discretize_in_place)
         self.alcp.set_param(self.alcp.df, 'max_cntl_size', max_cntl_size)
@@ -84,6 +86,7 @@ class ALCManager:
                  df_original=df_original,
                  anon=anon,
                  disc_max=self.alcp.df.disc_max,
+                 disc_min=self.alcp.df.disc_min,
                  disc_bins=self.alcp.df.disc_bins,
                  discretize_in_place=self.alcp.df.discretize_in_place,
                  max_cntl_size=self.alcp.df.max_cntl_size,

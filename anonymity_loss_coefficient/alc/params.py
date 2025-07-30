@@ -17,6 +17,7 @@ class _ParamGroup:
     recall_adjust_min_intercept: float 
     recall_adjust_strength: float 
     disc_max: int 
+    disc_min: int 
     disc_bins: int 
     discretize_in_place: bool 
     max_cntl_size: int 
@@ -49,6 +50,7 @@ class ALCParams:
         )
         self.df = _ParamGroup(
             disc_max=50,
+            disc_min=10,
             disc_bins=20,
             discretize_in_place=False,
             max_cntl_size=1000,

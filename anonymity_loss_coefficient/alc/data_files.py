@@ -21,6 +21,7 @@ class DataFiles:
                  df_original: pd.DataFrame,
                  anon: Union[pd.DataFrame, List[pd.DataFrame]],
                  disc_max: int,
+                 disc_min: int,
                  disc_bins: int,
                  discretize_in_place: bool,
                  max_cntl_size: int,
@@ -30,6 +31,7 @@ class DataFiles:
                  ) -> None:
         self.logger = logger
         self.disc_max = disc_max
+        self.disc_min = disc_min
         self.disc_bins = disc_bins
         self.discretize_in_place = discretize_in_place
         self.max_cntl_size = max_cntl_size
@@ -57,12 +59,7 @@ class DataFiles:
         self.orig_all = self.orig_all.dropna()
         self.anon = [df.dropna() for df in self.anon]
 
-        # Find numeric columns with more than disc_max unique values in df_orig_all
-        numeric_cols = self.orig_all.select_dtypes(include=[np.number]).columns
-        self.columns_for_discretization = [
-            col for col in numeric_cols 
-            if self.orig_all[col].dtype == 'float64' or self.orig_all[col].dtype == 'float32' or self.orig_all[col].nunique() > self.disc_max
-        ]
+        self.columns_for_discretization = self._select_columns_for_discretization()
         self.new_discretized_columns = [f"{col}__discretized" for col in self.columns_for_discretization]
 
         # Initialize the dictionary to store discretizers
@@ -393,7 +390,7 @@ class DataFiles:
         # Perform stratified sampling to ensure all classes are in both sets
         
         try:
-            self.logger.info(f"Adjusting cntl and orig to ensure all classes are present in both sets.")
+            self.logger.info(f"Adjusting test set (cntl) and training set (orig) to ensure all classes are present in both sets.")
             # Get indices for stratified split
             indices = self.orig_all.index.tolist()
             target_values = self.orig_all[secret_col].tolist()
@@ -419,3 +416,116 @@ class DataFiles:
         except Exception as e:
             self.logger.warning(f"Failed to perform stratified sampling for target classes: {e}")
             return False
+
+    def _select_columns_for_discretization(self) -> List[str]:
+        # Select all columns with floating-point dtypes
+        float_cols = self.orig_all.select_dtypes(include=[np.floating]).columns.tolist()
+        
+        # Also check integer columns for "smooth" distributions that suggest continuity
+        int_cols = self.orig_all.select_dtypes(include=[np.integer]).columns
+        smooth_int_cols = []
+        
+        for col in int_cols:
+            if self._is_smooth_distribution(col):
+                smooth_int_cols.append(col)
+                self.logger.debug(f"Column '{col}' classified as continuous based on smooth distribution")
+        
+        return float_cols + smooth_int_cols
+
+    def _is_smooth_distribution(self, col: str) -> bool:
+        """
+        Determine if an integer column has a smooth distribution suggesting continuity.
+        
+        Uses multiple heuristics:
+        1. Minimum unique values (less than disc_min, typically 10)
+        2. Maximum unique values (less than disc_max, typically 50)
+        3. Value density - checks if values are relatively dense in the range
+        4. Distribution shape - checks for monotonic or unimodal patterns
+        
+        Args:
+            col: Column name to analyze
+            
+        Returns:
+            True if the distribution appears smooth/continuous
+        """
+        series = self.orig_all[col].dropna()
+        
+        if len(series) == 0:
+            return False
+            
+        unique_vals = series.unique()
+        n_unique = len(unique_vals)
+        
+        # Must have at least self.disc_min unique values to be considered continuous
+        if n_unique < self.disc_min:
+            return False
+            
+        # Must have fewer than disc_max unique values (otherwise would be selected anyway)
+        if n_unique >= self.disc_max:
+            return True  # Would be selected by the old logic anyway
+        
+        # Check value density: are the values relatively dense in their range?
+        min_val, max_val = series.min(), series.max()
+        value_range = max_val - min_val + 1
+        density = n_unique / value_range
+        
+        # If density is very low, likely categorical (e.g., sparse IDs)
+        if density < 0.3:
+            return False
+            
+        # Check distribution shape for smoothness
+        value_counts = series.value_counts().sort_index()
+        frequencies = np.array(value_counts.values)
+        
+        # Test for monotonic decrease (common in continuous data)
+        if self._is_monotonic_trend(frequencies):
+            return True
+            
+        # Test for unimodal distribution (bell-shaped or similar)
+        if self._is_unimodal(frequencies):
+            return True
+            
+        # If we have high density and reasonable number of unique values,
+        # lean towards continuous
+        if density > 0.7 and n_unique >= 15:
+            return True
+            
+        return False
+    
+    def _is_monotonic_trend(self, frequencies: np.ndarray) -> bool:
+        """Check if frequencies show a generally monotonic trend (allowing some noise)."""
+        if len(frequencies) < 5:
+            return False
+        
+        # Simple check: is the trend generally decreasing or increasing?
+        n = len(frequencies)
+        decreasing = sum(frequencies[i] >= frequencies[i+1] for i in range(n-1))
+        increasing = sum(frequencies[i] <= frequencies[i+1] for i in range(n-1))
+        
+        # Allow some noise: 70% of transitions should follow the trend
+        return decreasing / (n-1) > 0.7 or increasing / (n-1) > 0.7
+    
+    def _is_unimodal(self, frequencies: np.ndarray) -> bool:
+        """Check if the distribution is roughly unimodal (single peak)."""
+        if len(frequencies) < 5:
+            return False
+            
+        # Find peaks (local maxima)
+        peaks = []
+        for i in range(1, len(frequencies) - 1):
+            if frequencies[i] > frequencies[i-1] and frequencies[i] > frequencies[i+1]:
+                peaks.append(i)
+        
+        # Unimodal should have 0-2 peaks (allowing for some noise)
+        if len(peaks) <= 2:
+            return True
+            
+        # Alternative: check if most of the mass is concentrated in the middle
+        n = len(frequencies)
+        middle_third_start = n // 3
+        middle_third_end = 2 * n // 3
+        middle_mass = sum(frequencies[middle_third_start:middle_third_end])
+        total_mass = sum(frequencies)
+        
+        # If middle third contains >40% of the mass, likely unimodal
+        return middle_mass / total_mass > 0.4
