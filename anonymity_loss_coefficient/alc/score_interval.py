@@ -211,19 +211,20 @@ class ScoreInterval:
             # and see if we can early halt
             base_prc_res = self._compute_best_prc(pred_type='base', max_prec_interval=halt_interval_loose)
             attack_prc_res = self._compute_best_prc(pred_type='attack', max_prec_interval=halt_interval_loose)
-            data = self._compile_data(base_prc_res, attack_prc_res)
-            if data['alc_early_high'] > halt_loose_high_acl:
-                return {'halted': True,
-                        'alc': data['alc'],
-                        'reason': f"loose early halt from high alc: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
-                        'halt_code': 'early_high_loose',
-                        'data': data,}
-            if data['alc_early_low'] < halt_loose_low_acl:
-                return {'halted': True,
-                        'alc': data['alc'],
-                        'reason': f"loose early halt from low alc: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
-                        'halt_code': 'early_low_loose',
-                        'data': data,}
+            if base_prc_res['n'] > 0 and attack_prc_res['n'] > 0:
+                data = self._compile_data(base_prc_res, attack_prc_res)
+                if data['alc_early_high'] > halt_loose_high_acl:
+                    return {'halted': True,
+                            'alc': data['alc'],
+                            'reason': f"loose early halt from high alc: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
+                            'halt_code': 'early_high_loose',
+                            'data': data,}
+                if data['alc_early_low'] < halt_loose_low_acl:
+                    return {'halted': True,
+                            'alc': data['alc'],
+                            'reason': f"loose early halt from low alc: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
+                            'halt_code': 'early_low_loose',
+                            'data': data,}
             return {'halted': False,
                     'alc': data['alc'],
                     'reason': f"significant intervals not reached (base: {base_prc_res['si']}, attack: {attack_prc_res['si']})",
