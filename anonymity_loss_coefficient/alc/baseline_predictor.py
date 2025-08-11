@@ -76,6 +76,7 @@ class BaselinePredictor:
         self.selected_model_class = None
         self.selected_model_params = None
         self.selected_model_name = None
+        self.selected_model_prc = None
         self.otop = None
         self.df_pred_conf = None
         self.si = None
@@ -169,6 +170,9 @@ class BaselinePredictor:
                 prc_dict = self.si.compute_best_prc(df=df_pred_conf)
                 prc_score = prc_dict['prc']
                 self.logger.info(f"    {model_name} PRC score: {prc_score:.4f}")
+                for key, value in prc_dict.items():
+                    if key != 'prc':
+                        self.logger.info(f"          {key}: {value}")
                 
                 if prc_score > best_prc:
                     best_prc = prc_score
@@ -189,6 +193,7 @@ class BaselinePredictor:
         # Store results
         self.selected_model_name = best_model_name
         self.df_pred_conf = best_df_pred_conf
+        self.selected_model_prc = best_prc
         
         if best_model_name != "OneToOnePredictor":
             self.otop = None  # Clear if ML model was selected

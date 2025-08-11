@@ -96,6 +96,9 @@ def find_best_matches(
         secret_values = df_candidates.loc[idx, secret_column].tolist()
 
         results.append((adjusted_gower_distance, secret_values))
+        print(f"for table with columns {df_candidates.columns.tolist()}:")
+        print(f"  adjusted_gower_distance: {adjusted_gower_distance}")
+        print(f"    secret_values: {secret_values}")
 
     if not results:
         return 1.0, []

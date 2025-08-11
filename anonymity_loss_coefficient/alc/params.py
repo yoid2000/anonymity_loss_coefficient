@@ -10,6 +10,9 @@ class _ParamGroup:
     halt_tight_high_acl: float 
     halt_interval_tight: float 
     halt_interval_loose: float 
+    halt_interval_really_tight: float 
+    halt_expected_prc_threshold: float
+    halt_really_tight_low_acl: float
     si_type: str 
     si_confidence: float 
     max_score_interval: float 
@@ -37,6 +40,9 @@ class ALCParams:
             halt_tight_high_acl = 0.95,
             halt_interval_tight = 0.1,
             halt_interval_loose = 0.25,
+            halt_interval_really_tight = 0.02,
+            halt_expected_prc_threshold = 0.02,
+            halt_really_tight_low_acl = 0.5,
         )
         self.si = _ParamGroup(
             si_type='wilson_score_interval',

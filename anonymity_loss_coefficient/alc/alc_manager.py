@@ -32,6 +32,8 @@ class ALCManager:
                        halt_tight_high_acl: Optional[float] = None,
                        halt_interval_tight: Optional[float] = None,
                        halt_interval_loose: Optional[float] = None,
+                       halt_interval_really_tight: Optional[float] = None,
+                       halt_expected_prc_threshold: Optional[float] = None,
                        # AnonymityLossCoefficient parameters
                        prc_abs_weight: Optional[float] = None,
                        recall_adjust_min_intercept: Optional[float] = None,
@@ -57,6 +59,8 @@ class ALCManager:
         self.alcp.set_param(self.alcp.alcm, 'halt_tight_high_acl', halt_tight_high_acl)
         self.alcp.set_param(self.alcp.alcm, 'halt_interval_tight', halt_interval_tight)
         self.alcp.set_param(self.alcp.alcm, 'halt_interval_loose', halt_interval_loose)
+        self.alcp.set_param(self.alcp.alcm, 'halt_interval_really_tight', halt_interval_really_tight)
+        self.alcp.set_param(self.alcp.alcm, 'halt_expected_prc_threshold', halt_expected_prc_threshold)
 
         self.alcp.set_param(self.alcp.alc, 'prc_abs_weight', prc_abs_weight)
         self.alcp.set_param(self.alcp.alc, 'recall_adjust_min_intercept', recall_adjust_min_intercept)
@@ -109,6 +113,8 @@ class ALCManager:
         self.halt_tight_high_acl = self.alcp.alcm.halt_tight_high_acl
         self.halt_interval_tight = self.alcp.alcm.halt_interval_tight
         self.halt_interval_loose = self.alcp.alcm.halt_interval_loose
+        self.halt_interval_really_tight = self.alcp.alcm.halt_interval_really_tight
+        self.halt_expected_prc_threshold = self.alcp.alcm.halt_expected_prc_threshold
         self.attack_in_progress = False
 
         self.rep = Reporter(results_path=results_path,
@@ -126,7 +132,6 @@ class ALCManager:
         # These contain information that the attacker can use to determine
         # why an attack loop halted
         self.halt_info = None
-        self.do_early_halt = False
         # Other
         self.start_time = None
 
@@ -149,7 +154,6 @@ class ALCManager:
         """
         
         self.start_time = time.time()
-        self.do_early_halt = False
         # First check if we have already run this attack.
         if self.rep.already_attacked(secret_column, known_columns):
             self.logger.info(f"Already ran attack on {secret_column} with known columns {known_columns}. Skipping.")
@@ -181,6 +185,7 @@ class ALCManager:
             self.base_pred = None
             return
 
+        si_halt.set_expected_prc(self.base_pred.selected_model_prc)
         num_attacks = 0
         self.halt_info = {'halted': False, 'reason': 'halt not yet checked', 'num_attacks': 1, 'halt_code': 'none'}
         self.attack_in_progress = True
@@ -231,7 +236,9 @@ class ALCManager:
                                         halt_loose_low_acl = self.halt_loose_low_acl,
                                         halt_loose_high_acl = self.halt_loose_high_acl,
                                         halt_tight_low_acl = self.halt_tight_low_acl,
-                                        halt_tight_high_acl = self.halt_tight_high_acl
+                                        halt_tight_high_acl = self.halt_tight_high_acl,
+                                        halt_interval_really_tight = self.halt_interval_really_tight,
+                                        halt_expected_prc_threshold = self.halt_expected_prc_threshold
                                     )
                 self.halt_info.update({'num_attacks': num_attacks})
                 self.logger.debug(pp.pformat(self.halt_info))

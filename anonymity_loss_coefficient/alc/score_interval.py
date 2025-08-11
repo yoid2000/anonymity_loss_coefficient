@@ -19,6 +19,7 @@ class ScoreInterval:
         self.progress = []
         self.best_base_prc = None
         self.best_attack_prc = None
+        self.expected_prc = None
         self.si_type = si_type
         self.si_confidence = si_confidence
         self.df_base = pd.DataFrame(columns=['prediction', 'base_confidence'])
@@ -170,19 +171,25 @@ class ScoreInterval:
                                              r_attack=data['attack_recall'])
         return data
 
+    def set_expected_prc(self, expected_prc: float) -> None:
+        self.expected_prc = expected_prc
+
     def ok_to_halt(self,
                    min_samples: int = 50,
-                   sample_period: int = 25,
+                   sample_period: int = 50,
                    halt_interval_tight: float = 0.1,
                    halt_interval_loose: float = 0.25,
                    halt_loose_low_acl: float = 0.0,
                    halt_loose_high_acl: float = 0.9,
                    halt_tight_low_acl: float = 0.25,
                    halt_tight_high_acl: float = 0.95,
+                   halt_interval_really_tight: float = 0.02,
+                   halt_expected_prc_threshold: float = 0.02,
+                   halt_really_tight_low_acl: float = 0.5,
                    ) -> Dict[str, Any]:
         ''' Monitors the progress of the attack and baseline, and determines if
         the results of both are significant enough to halt the predictor loop.
-        Operates by peridocally computing the best PRC scores for both attack
+        Operates by periodically computing the best PRC scores for both attack
         and baseline using _compute_best_prc(), and checking for
         diminishing returns in improving PRC.
         It makes its first prc measures when there are min_samples predictions. Subsequently,
@@ -246,6 +253,23 @@ class ScoreInterval:
                     'reason': f"tight early halt from high alc: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
                     'halt_code': 'early_high_tight',
                     'data': data,}
+        # Let's see if we should base our decision on the tight confidence intervals
+        # or the really tight ones. We'll go for really tight if the ALC is rather
+        # high and we think we can improve it based on the expected PRC.
+        if data['alc'] >= halt_really_tight_low_acl and \
+           self.expected_prc is not None and \
+           base_prc_res['prc'] < (self.expected_prc - halt_expected_prc_threshold):
+            # Let's measure the really tight confidence intervals
+            # Note that it is only the baseline that we need really tight
+            base_prc_res_rt = self._compute_best_prc(pred_type='base', max_prec_interval=halt_interval_really_tight)
+            zzzz
+            if base_prc_res_rt['n'] != 0:
+                return {'halted': False,
+                        'alc': data['alc'],
+                        'reason': f"first checkpoint: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
+                        'halt_code': 'none',
+                        'data': data,}
+                pass
         # No early halt, so we need to check for diminishing returns
         if self.best_base_prc is None:
             # First checkpoint
@@ -258,7 +282,7 @@ class ScoreInterval:
                     'halt_code': 'none',
                     'data': data,}
         # Beyond this point, each checkpoint is compared to the last
-        if self.best_base_prc is None or self.best_attack_prc is None:
+        if self.best_attack_prc is None:
             raise ValueError("Error: last_base_prc or last_attack_prc is None. This should not happen.")
         base_improv_thresh = max(0.01, (1.0 - self.best_base_prc['prc']) * 0.05)
         attack_improv_thresh = max(0.01, (1.0 - self.best_attack_prc['prc']) * 0.05)
