@@ -32,8 +32,10 @@ class ALCManager:
                        halt_tight_high_acl: Optional[float] = None,
                        halt_interval_tight: Optional[float] = None,
                        halt_interval_loose: Optional[float] = None,
-                       halt_interval_really_tight: Optional[float] = None,
-                       halt_expected_prc_threshold: Optional[float] = None,
+                       halt_ignore_expected_prc_alc_thresh = 0.5,
+                       halt_loose_expected_prc_alc_thresh = 0.75,
+                       halt_loose_expected_prc_closeness = 0.05,
+                       halt_tight_expected_prc_closeness = 0.01,
                        # AnonymityLossCoefficient parameters
                        prc_abs_weight: Optional[float] = None,
                        recall_adjust_min_intercept: Optional[float] = None,
@@ -59,8 +61,10 @@ class ALCManager:
         self.alcp.set_param(self.alcp.alcm, 'halt_tight_high_acl', halt_tight_high_acl)
         self.alcp.set_param(self.alcp.alcm, 'halt_interval_tight', halt_interval_tight)
         self.alcp.set_param(self.alcp.alcm, 'halt_interval_loose', halt_interval_loose)
-        self.alcp.set_param(self.alcp.alcm, 'halt_interval_really_tight', halt_interval_really_tight)
-        self.alcp.set_param(self.alcp.alcm, 'halt_expected_prc_threshold', halt_expected_prc_threshold)
+        self.alcp.set_param(self.alcp.alcm, 'halt_ignore_expected_prc_alc_thresh', halt_ignore_expected_prc_alc_thresh)
+        self.alcp.set_param(self.alcp.alcm, 'halt_loose_expected_prc_alc_thresh', halt_loose_expected_prc_alc_thresh)
+        self.alcp.set_param(self.alcp.alcm, 'halt_loose_expected_prc_closeness', halt_loose_expected_prc_closeness)
+        self.alcp.set_param(self.alcp.alcm, 'halt_tight_expected_prc_closeness', halt_tight_expected_prc_closeness)
 
         self.alcp.set_param(self.alcp.alc, 'prc_abs_weight', prc_abs_weight)
         self.alcp.set_param(self.alcp.alc, 'recall_adjust_min_intercept', recall_adjust_min_intercept)
@@ -106,6 +110,7 @@ class ALCManager:
             recall_adjust_strength=self.alcp.alc.recall_adjust_strength,
         )
         self.model_name = None
+        self.expected_prc = None
         self.random_state = random_state
         self.halt_loose_low_acl = self.alcp.alcm.halt_loose_low_acl
         self.halt_tight_low_acl = self.alcp.alcm.halt_tight_low_acl
@@ -113,8 +118,10 @@ class ALCManager:
         self.halt_tight_high_acl = self.alcp.alcm.halt_tight_high_acl
         self.halt_interval_tight = self.alcp.alcm.halt_interval_tight
         self.halt_interval_loose = self.alcp.alcm.halt_interval_loose
-        self.halt_interval_really_tight = self.alcp.alcm.halt_interval_really_tight
-        self.halt_expected_prc_threshold = self.alcp.alcm.halt_expected_prc_threshold
+        self.halt_ignore_expected_prc_alc_thresh = self.alcp.alcm.halt_ignore_expected_prc_alc_thresh
+        self.halt_loose_expected_prc_alc_thresh = self.alcp.alcm.halt_loose_expected_prc_alc_thresh
+        self.halt_loose_expected_prc_closeness = self.alcp.alcm.halt_loose_expected_prc_closeness
+        self.halt_tight_expected_prc_closeness = self.alcp.alcm.halt_tight_expected_prc_closeness
         self.attack_in_progress = False
 
         self.rep = Reporter(results_path=results_path,
@@ -171,6 +178,21 @@ class ALCManager:
             decoded_ignore_value = self.decode_value(secret_column, ignore_value)
             self.logger.info(f"The value {decoded_ignore_value} constitutes {round((100*(1-ignore_fraction)),2)} % of column {secret_column}, so we'll ignore a proportional fraction of those values in the attacks so that our results are better balanced.")
         self.base_pred = BaselinePredictor(logger=self.logger)
+
+        si_dummy = ScoreInterval(si_type=self.alcp.si.si_type,
+                          si_confidence=self.alcp.si.si_confidence,
+                          logger=self.logger)
+
+        # zzzz
+        self.model_name, self.expected_prc = self.base_pred.select_model(self.df.orig_all,
+                    known_columns=known_columns, 
+                    secret_column=secret_column, 
+                    column_classifications=self.get_column_classification_dict(), 
+                    si=si_dummy,
+                    ignore_value=ignore_value,
+                    ignore_fraction=ignore_fraction,
+                    random_state=self.random_state)
+        
         si_halt = ScoreInterval(si_type=self.alcp.si.si_type,
                                 si_confidence=self.alcp.si.si_confidence,
                                 logger=self.logger)
@@ -231,15 +253,18 @@ class ALCManager:
                                 attack_confidence=self.prediction_confidence,
                                 si_halt=si_halt)
                 self.halt_info = si_halt.ok_to_halt(
+                                        expected_prc = self.expected_prc,
                                         halt_interval_tight = self.halt_interval_tight,
                                         halt_interval_loose = self.halt_interval_loose,
                                         halt_loose_low_acl = self.halt_loose_low_acl,
                                         halt_loose_high_acl = self.halt_loose_high_acl,
                                         halt_tight_low_acl = self.halt_tight_low_acl,
                                         halt_tight_high_acl = self.halt_tight_high_acl,
-                                        halt_interval_really_tight = self.halt_interval_really_tight,
-                                        halt_expected_prc_threshold = self.halt_expected_prc_threshold
-                                    )
+                                        halt_ignore_expected_prc_alc_thresh = self.halt_ignore_expected_prc_alc_thresh,
+                                        halt_loose_expected_prc_alc_thresh = self.halt_loose_expected_prc_alc_thresh,
+                                        halt_loose_expected_prc_closeness = self.halt_loose_expected_prc_closeness,
+                                        halt_tight_expected_prc_closeness = self.halt_tight_expected_prc_closeness,
+                )
                 self.halt_info.update({'num_attacks': num_attacks})
                 self.logger.debug(pp.pformat(self.halt_info))
                 end_time = time.time()
@@ -443,22 +468,10 @@ class ALCManager:
             raise ValueError("Error: Control block initialization failed")
         if self.df.check_and_fix_target_classes(secret_column) is False:
             return False
-        df_train = self.df.orig
-        df_test = self.df.cntl
         
-        # Create ScoreInterval object for model selection
-        from .score_interval import ScoreInterval
-        si = ScoreInterval(si_type=self.alcp.si.si_type,
-                          si_confidence=self.alcp.si.si_confidence,
-                          logger=self.logger)
-        
-        self.model_name = self.base_pred.build_model(
-            df_train=df_train,
-            df_test=df_test,
-            known_columns=known_columns, 
-            secret_column=secret_column, 
-            column_classifications=self.get_column_classification_dict(), 
-            si=si,
+        self.base_pred.build_model(
+            df_train=self.df.orig,
+            df_test=self.df.cntl,
             random_state=self.random_state
         )
         
@@ -476,11 +489,9 @@ class ALCManager:
             return False
         if self.df.check_and_fix_target_classes(secret_column) is False:
             return False
-        df_train = self.df.orig
-        df_test = self.df.cntl
         
         # Use stored configuration to rebuild model
-        self.base_pred.build_model(df_train=df_train, df_test=df_test, random_state=self.random_state)
+        self.base_pred.build_model(df_train=self.df.orig, df_test=self.df.cntl, random_state=self.random_state)
         
         if self.prior_experiment_swap_fraction > 0:
             # This is purely for experimentation and should not be used otherwise

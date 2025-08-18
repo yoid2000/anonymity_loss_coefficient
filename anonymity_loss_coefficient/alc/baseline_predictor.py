@@ -81,48 +81,92 @@ class BaselinePredictor:
         self.df_pred_conf = None
         self.si = None
 
+    def select_model(
+        self,
+        df: pd.DataFrame,
+        known_columns: List[str],
+        secret_column: str,
+        column_classifications: Dict[str, str],
+        si: "ScoreInterval",
+        ignore_value: Optional[Any] = None,
+        ignore_fraction: Optional[float] = None,
+        random_state: Optional[int] = None
+    ) -> Tuple[str, float]:
+        self.known_columns = known_columns
+        self.secret_column = secret_column
+        self.si = si
+
+        self.onehot_columns = [col for col in self.known_columns if column_classifications.get(col) == 'categorical']
+        self.non_onehot_columns = [col for col in self.known_columns if column_classifications.get(col) == 'continuous']
+
+        self.otop = self._detect_and_reclassify_correlated_categoricals(df)
+        
+        # Create df_train and df_test
+        df_modified = df.copy()
+        
+        # Handle ignore_value filtering if specified
+        if ignore_value is not None and ignore_fraction is not None:
+            # Find rows where secret_column equals ignore_value
+            ignore_mask = df_modified[secret_column] == ignore_value
+            ignore_rows = df_modified[ignore_mask]
+            
+            if len(ignore_rows) > 0:
+                # Calculate how many rows to remove
+                num_to_remove = int(len(ignore_rows) * (1 - ignore_fraction))
+                
+                if num_to_remove > 0:
+                    # Randomly select rows to remove
+                    if random_state is not None:
+                        rows_to_remove = ignore_rows.sample(n=num_to_remove, random_state=random_state)
+                    else:
+                        rows_to_remove = ignore_rows.sample(n=num_to_remove)
+                    
+                    # Remove the selected rows
+                    df_modified = df_modified.drop(rows_to_remove.index)
+                    self.logger.info(f"Removed {num_to_remove} rows where {secret_column}=={ignore_value}")
+        
+        # Determine test size
+        if len(df_modified) < 6000:
+            test_size = 0.5
+            self.logger.info(f"Dataset has {len(df_modified)} rows (<6000), using 50% for test set")
+        else:
+            test_size = min(3000 / len(df_modified), 0.5)
+            self.logger.info(f"Dataset has {len(df_modified)} rows, using test size of {test_size:.3f} (target: 3000 rows)")
+        
+        # Create stratified train/test split
+        from sklearn.model_selection import train_test_split
+        try:
+            df_train, df_test = train_test_split(
+                df_modified,
+                test_size=test_size,
+                stratify=df_modified[secret_column],
+                random_state=random_state
+            )
+            self.logger.info(f"Created stratified split: {len(df_train)} train, {len(df_test)} test")
+        except ValueError as e:
+            # Fallback to regular split if stratification fails (e.g., too few samples per class)
+            self.logger.warning(f"Stratified split failed ({e}), using regular split")
+            df_train, df_test = train_test_split(
+                df_modified,
+                test_size=test_size,
+                random_state=random_state
+            )
+            self.logger.info(f"Created regular split: {len(df_train)} train, {len(df_test)} test")
+        
+        return self._select_best_model(df_train, df_test, random_state)
+
     def build_model(
         self,
         df_train: pd.DataFrame,
         df_test: pd.DataFrame,
-        known_columns: Optional[List[str]] = None,
-        secret_column: Optional[str] = None,
-        column_classifications: Optional[Dict[str, str]] = None,
-        si: Optional['ScoreInterval'] = None,
         random_state: Optional[int] = None
-    ) -> str:
-        """
-        Build model and prediction data structure.
+    ) -> None:
+        if self.known_columns is None or self.secret_column is None:
+            raise ValueError("Must call select_model first")
         
-        If known_columns, secret_column, column_classifications, and si are provided,
-        this method performs model selection and stores the best model configuration.
-        
-        If these parameters are not provided, it uses the previously stored configuration
-        to build a new model with the provided training and test data.
-        
-        Returns:
-            Name of the selected model
-        """
-        if known_columns is not None and secret_column is not None and column_classifications is not None and si is not None:
-            # Initial model selection mode
-            self.known_columns = known_columns
-            self.secret_column = secret_column
-            self.si = si
+        self._build_model_from_stored_config(df_train, df_test, random_state)
 
-            self.onehot_columns = [col for col in self.known_columns if column_classifications.get(col) == 'categorical']
-            self.non_onehot_columns = [col for col in self.known_columns if column_classifications.get(col) == 'continuous']
-
-            self.otop = self._detect_and_reclassify_correlated_categoricals(df_train)
-            
-            return self._select_best_model(df_train, df_test, random_state)
-        else:
-            # Rebuild mode using stored configuration
-            if self.known_columns is None or self.secret_column is None:
-                raise ValueError("Must call build_model with optional parameters first")
-            
-            return self._build_model_from_stored_config(df_train, df_test, random_state)
-    
-    def _select_best_model(self, df_train: pd.DataFrame, df_test: pd.DataFrame, random_state: Optional[int]) -> str:
+    def _select_best_model(self, df_train: pd.DataFrame, df_test: pd.DataFrame, random_state: Optional[int]) -> Tuple[str, float]:
         """Select the best model based on PRC scores."""
         models = [
             ("RandomForest", RandomForestClassifier(
@@ -166,6 +210,7 @@ class BaselinePredictor:
         self.logger.info("Determine best ML model:")
         for model_name, model in models:
             try:
+                self.logger.info(f"   Testing model: {model_name}")
                 df_pred_conf = self._build_ml_model_predictions(df_train, df_test, model)
                 prc_dict = self.si.compute_best_prc(df=df_pred_conf)
                 prc_score = prc_dict['prc']
@@ -199,9 +244,9 @@ class BaselinePredictor:
             self.otop = None  # Clear if ML model was selected
         
         self.logger.info(f"Selected model: {best_model_name} with PRC score: {best_prc:.4f}")
-        return best_model_name
+        return best_model_name, best_prc
     
-    def _build_model_from_stored_config(self, df_train: pd.DataFrame, df_test: pd.DataFrame, random_state: Optional[int]) -> str:
+    def _build_model_from_stored_config(self, df_train: pd.DataFrame, df_test: pd.DataFrame, random_state: Optional[int]) -> None:
         """Build model using previously stored configuration."""
         if self.selected_model_name == "OneToOnePredictor":
             if self.otop is None:
@@ -216,8 +261,6 @@ class BaselinePredictor:
             
             model = model_class(**model_params)
             self.df_pred_conf = self._build_ml_model_predictions(df_train, df_test, model)
-        
-        return self.selected_model_name
     
     def _build_otop_predictions(self, df_test: pd.DataFrame) -> pd.DataFrame:
         """Build predictions using OneToOnePredictor."""

@@ -10,9 +10,6 @@ class _ParamGroup:
     halt_tight_high_acl: float 
     halt_interval_tight: float 
     halt_interval_loose: float 
-    halt_interval_really_tight: float 
-    halt_expected_prc_threshold: float
-    halt_really_tight_low_acl: float
     si_type: str 
     si_confidence: float 
     max_score_interval: float 
@@ -37,12 +34,16 @@ class ALCParams:
             halt_loose_low_acl = 0.0,
             halt_loose_high_acl = 0.9,
             halt_tight_low_acl = 0.0,
-            halt_tight_high_acl = 0.95,
+            halt_tight_high_acl = 0.98,
             halt_interval_tight = 0.1,
             halt_interval_loose = 0.25,
-            halt_interval_really_tight = 0.02,
-            halt_expected_prc_threshold = 0.02,
-            halt_really_tight_low_acl = 0.5,
+            # Below the following, we just use diminishing returns
+            halt_ignore_expected_prc_alc_thresh = 0.5,
+            # Below the following, we want to be within loose closeness range of expected
+            # Above it, we want to be within tight closeness range
+            halt_loose_expected_prc_alc_thresh = 0.75,
+            halt_loose_expected_prc_closeness = 0.05,
+            halt_tight_expected_prc_closeness = 0.01,
         )
         self.si = _ParamGroup(
             si_type='wilson_score_interval',

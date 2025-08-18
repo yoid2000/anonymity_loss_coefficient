@@ -175,6 +175,7 @@ class ScoreInterval:
         self.expected_prc = expected_prc
 
     def ok_to_halt(self,
+                   expected_prc: float,
                    min_samples: int = 50,
                    sample_period: int = 50,
                    halt_interval_tight: float = 0.1,
@@ -183,9 +184,10 @@ class ScoreInterval:
                    halt_loose_high_acl: float = 0.9,
                    halt_tight_low_acl: float = 0.25,
                    halt_tight_high_acl: float = 0.95,
-                   halt_interval_really_tight: float = 0.02,
-                   halt_expected_prc_threshold: float = 0.02,
-                   halt_really_tight_low_acl: float = 0.5,
+                   halt_ignore_expected_prc_alc_thresh: float = 0.5,
+                   halt_loose_expected_prc_alc_thresh: float = 0.75,
+                   halt_loose_expected_prc_closeness: float = 0.05,
+                   halt_tight_expected_prc_closeness: float = 0.01,
                    ) -> Dict[str, Any]:
         ''' Monitors the progress of the attack and baseline, and determines if
         the results of both are significant enough to halt the predictor loop.
@@ -253,23 +255,6 @@ class ScoreInterval:
                     'reason': f"tight early halt from high alc: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
                     'halt_code': 'early_high_tight',
                     'data': data,}
-        # Let's see if we should base our decision on the tight confidence intervals
-        # or the really tight ones. We'll go for really tight if the ALC is rather
-        # high and we think we can improve it based on the expected PRC.
-        if data['alc'] >= halt_really_tight_low_acl and \
-           self.expected_prc is not None and \
-           base_prc_res['prc'] < (self.expected_prc - halt_expected_prc_threshold):
-            # Let's measure the really tight confidence intervals
-            # Note that it is only the baseline that we need really tight
-            base_prc_res_rt = self._compute_best_prc(pred_type='base', max_prec_interval=halt_interval_really_tight)
-            zzzz
-            if base_prc_res_rt['n'] != 0:
-                return {'halted': False,
-                        'alc': data['alc'],
-                        'reason': f"first checkpoint: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
-                        'halt_code': 'none',
-                        'data': data,}
-                pass
         # No early halt, so we need to check for diminishing returns
         if self.best_base_prc is None:
             # First checkpoint
@@ -295,11 +280,26 @@ class ScoreInterval:
         if base_progress is False and attack_progress is False:
             data = self._compile_data(self.best_base_prc, self.best_attack_prc)
             self.logger.info(f"\nCheckpoint: {len(self.df_base)} predictions: {data}")
-            return {'halted': True,
-                    'alc': data['alc'],
-                    'reason': f"diminishing returns: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
-                    'halt_code': 'diminishing_returns',
-                    'data': data,}
+            if data['alc'] < halt_ignore_expected_prc_alc_thresh:
+                return {'halted': True,
+                        'alc': data['alc'],
+                        'reason': f"diminishing returns: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
+                        'halt_code': 'diminishing_returns',
+                        'data': data,}
+            elif (data['alc'] < halt_loose_expected_prc_alc_thresh and
+                  self.expected_prc - data['base_prc'] < halt_loose_expected_prc_closeness):
+                return {'halted': True,
+                        'alc': data['alc'],
+                        'reason': f"close to expected prc (loose): base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
+                        'halt_code': 'close_to_expected_loose',
+                        'data': data,}
+            elif (data['alc'] >= halt_loose_expected_prc_alc_thresh and
+                  self.expected_prc - data['base_prc'] < halt_tight_expected_prc_closeness):
+                return {'halted': True,
+                        'alc': data['alc'],
+                        'reason': f"close to expected prc (tight): base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
+                        'halt_code': 'close_to_expected_tight',
+                        'data': data,}
         return {'halted': False,
                 'alc': data['alc'],
                 'reason': f"still making progress: base_prc: {base_prc_res['prc']}, attack_prc: {attack_prc_res['prc']}",
