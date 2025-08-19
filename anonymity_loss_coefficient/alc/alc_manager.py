@@ -167,16 +167,6 @@ class ALCManager:
             self.halt_info = {'halted': True, 'reason': 'attack already run. skipping.', 'num_attacks': 0, 'halt_code': 'skip'}
             return
 
-        # Establish the target values to ignore, if any, and make a ScoreInterval object
-        # for the halting decision.
-        ignore_value, ignore_fraction = self._get_target_to_ignore_for_halting(secret_column)
-        if ignore_value is not None:
-            if ignore_fraction == 0.0:
-                self.logger.info(f"Only one value in {secret_column}, so halt.")
-                self.halt_info = {'halted': True, 'reason': 'Only one value to attack. skipping.', 'num_attacks': 0, 'halt_code': 'one_value'}
-                return
-            decoded_ignore_value = self.decode_value(secret_column, ignore_value)
-            self.logger.info(f"The value {decoded_ignore_value} constitutes {round((100*(1-ignore_fraction)),2)} % of column {secret_column}, so we'll ignore a proportional fraction of those values in the attacks so that our results are better balanced.")
         self.base_pred = BaselinePredictor(logger=self.logger)
 
         si_dummy = ScoreInterval(si_type=self.alcp.si.si_type,
@@ -189,8 +179,6 @@ class ALCManager:
                     secret_column=secret_column, 
                     column_classifications=self.get_column_classification_dict(), 
                     si=si_dummy,
-                    ignore_value=ignore_value,
-                    ignore_fraction=ignore_fraction,
                     random_state=self.random_state)
         
         si_halt = ScoreInterval(si_type=self.alcp.si.si_type,
@@ -224,12 +212,6 @@ class ALCManager:
                 encoded_true_value = atk_row[secret_column].iloc[0]
                 decoded_true_value = self.decode_value(secret_column, encoded_true_value)
 
-                # Determine if the row should be ignored or not for the purpose of
-                # the halting criteria.
-                if (ignore_value is not None and
-                    encoded_true_value == ignore_value and
-                    random.random() > ignore_fraction):
-                    continue
                 num_attacks += 1
                 self._model_prediction(i, secret_column, known_columns, si_halt)
 
@@ -356,31 +338,6 @@ class ALCManager:
                          base_confidence=proba,
                          si_halt=si_halt)
 
-    def _get_target_to_ignore_for_halting(self, column: str) -> Tuple[Optional[Any], Optional[float]]:
-        """
-        With respect to the halting decision, we want to ignore column values that are
-        too common because then we won't get an adequate sampling of other column values.
-        We put the threshold above 0.5 because we don't want to ignore a value in a
-        well-balanced binary column.
-
-        This version computes the normalized count of the largest normalized count.
-        If that count is > 0.6, it returns the value and (1 - count).
-        """
-
-        # Compute normalized value counts
-        value_counts = self.df.orig_all[column].value_counts(normalize=True)
-
-        # Find the value with the largest normalized count
-        max_value = value_counts.idxmax()
-        max_count = value_counts.max()
-
-        # Check if the largest normalized count exceeds the threshold
-        if max_count > 0.6:
-            return max_value, 1 - max_count
-
-        # If no value exceeds the threshold, return None
-        return None, None
-    
     
     def summarize_results(self,
                           strong_thresh: float = 0.5,

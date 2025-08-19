@@ -88,8 +88,6 @@ class BaselinePredictor:
         secret_column: str,
         column_classifications: Dict[str, str],
         si: "ScoreInterval",
-        ignore_value: Optional[Any] = None,
-        ignore_fraction: Optional[float] = None,
         random_state: Optional[int] = None
     ) -> Tuple[str, float]:
         self.known_columns = known_columns
@@ -103,27 +101,6 @@ class BaselinePredictor:
         
         # Create df_train and df_test
         df_modified = df.copy()
-        
-        # Handle ignore_value filtering if specified
-        if ignore_value is not None and ignore_fraction is not None:
-            # Find rows where secret_column equals ignore_value
-            ignore_mask = df_modified[secret_column] == ignore_value
-            ignore_rows = df_modified[ignore_mask]
-            
-            if len(ignore_rows) > 0:
-                # Calculate how many rows to remove
-                num_to_remove = int(len(ignore_rows) * (1 - ignore_fraction))
-                
-                if num_to_remove > 0:
-                    # Randomly select rows to remove
-                    if random_state is not None:
-                        rows_to_remove = ignore_rows.sample(n=num_to_remove, random_state=random_state)
-                    else:
-                        rows_to_remove = ignore_rows.sample(n=num_to_remove)
-                    
-                    # Remove the selected rows
-                    df_modified = df_modified.drop(rows_to_remove.index)
-                    self.logger.info(f"Removed {num_to_remove} rows where {secret_column}=={ignore_value}")
         
         # Determine test size
         if len(df_modified) < 6000:
