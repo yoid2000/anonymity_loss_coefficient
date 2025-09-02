@@ -1,12 +1,13 @@
 import pandas as pd
-from typing import Optional, List, Any, Tuple, Dict
+from typing import Optional, List, Any, Tuple, Dict, TYPE_CHECKING
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import OneHotEncoder
-from sklearn.model_selection import StratifiedKFold, cross_val_score
-from sklearn.metrics import make_scorer, log_loss
 import logging
 import numpy as np
+
+if TYPE_CHECKING:
+    from .score_interval import ScoreInterval
 
 # The following to suppress warnings from loky about CPU count
 import os
@@ -14,11 +15,12 @@ os.environ["LOKY_MAX_CPU_COUNT"] = "4"
 
 class OneToOnePredictor:
     """
-    A predictor for features that have a 1-to-1 correspondence with the target.
+    A predictor for features that have a strong correspondence with the target.
+    For each feature value, uses the most frequent target value as the prediction.
     """
     def __init__(self, df: pd.DataFrame, feature: str, target: str) -> None:
         """
-        Initialize the predictor with a mapping from feature values to target values.
+        Initialize the predictor with a mapping from feature values to most frequent target values.
         
         Args:
             df: DataFrame containing the feature and target columns
@@ -28,25 +30,34 @@ class OneToOnePredictor:
         self.feature_name = feature
         self.target_name = target
         
-        # Create the mapping from feature values to target values
-        self.mapping = dict(zip(df[feature], df[target]))
+        # Create the mapping from feature values to most frequent target values
+        self.mapping = {}
+        grouped = df.groupby(feature)[target]
+        
+        for feature_value, target_values in grouped:
+            # Find the most frequent target value for this feature value
+            most_frequent_target = target_values.mode()
+            if len(most_frequent_target) > 0:
+                self.mapping[feature_value] = most_frequent_target.iloc[0]
+            else:
+                # Fallback if mode is empty (shouldn't happen but safety first)
+                self.mapping[feature_value] = target_values.iloc[0]
         
     def predict(self, feature_value: Any) -> Any:
         """
-        Predict the target value for a given feature value.
+        Predict the target value for a given feature value using the most frequent mapping.
         
         Args:
             feature_value: A value from the feature column
             
         Returns:
-            The corresponding target value
+            The most frequent target value for this feature value
             
         Raises:
             KeyError: If the feature value is not found in the mapping
         """
         if feature_value not in self.mapping:
             raise KeyError(f"Feature value '{feature_value}' not found in mapping")
-        
         return self.mapping[feature_value]
 
 class BaselinePredictor:
@@ -60,9 +71,14 @@ class BaselinePredictor:
         self.encoder = None
         self.onehot_columns = []
         self.non_onehot_columns = []
+        self.selected_model = None
         self.selected_model_class = None
         self.selected_model_params = None
+        self.selected_model_name = None
+        self.selected_model_prc = None
         self.otop = None
+        self.df_pred_conf = None
+        self.si = None
 
     def select_model(
         self,
@@ -70,175 +86,279 @@ class BaselinePredictor:
         known_columns: List[str],
         secret_column: str,
         column_classifications: Dict[str, str],
+        si: "ScoreInterval",
         random_state: Optional[int] = None
-    ) -> None:
+    ) -> Tuple[str, float]:
         self.known_columns = known_columns
         self.secret_column = secret_column
+        self.si = si
 
         self.onehot_columns = [col for col in self.known_columns if column_classifications.get(col) == 'categorical']
         self.non_onehot_columns = [col for col in self.known_columns if column_classifications.get(col) == 'continuous']
 
-        otop = self._detect_and_reclassify_correlated_categoricals(df)
+        self.otop = self._detect_and_reclassify_correlated_categoricals(df)
         
-        # If a one-to-one predictor is found, use it instead of other models
-        if otop is not None:
-            self.otop = otop
-            self.logger.info("Using OneToOnePredictor due to perfect 1-1 correlation")
-            return "OneToOnePredictor"
-
-        if self.onehot_columns:
-            self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
-            X_cat = self.encoder.fit_transform(df[self.onehot_columns])
+        # Create df_train and df_test
+        df_modified = df.copy()
+        
+        # Determine test size
+        if len(df_modified) < 6000:
+            test_size = 0.5
+            self.logger.info(f"Dataset has {len(df_modified)} rows (<6000), using 50% for test set")
         else:
-            self.encoder = None
-            X_cat = np.empty((len(df), 0))
+            test_size = min(3000 / len(df_modified), 0.5)
+            self.logger.info(f"Dataset has {len(df_modified)} rows, using test size of {test_size:.3f} (target: 3000 rows)")
+        
+        # Create stratified train/test split
+        from sklearn.model_selection import train_test_split
+        try:
+            df_train, df_test = train_test_split(
+                df_modified,
+                test_size=test_size,
+                stratify=df_modified[secret_column],
+                random_state=random_state
+            )
+            self.logger.info(f"Created stratified split: {len(df_train)} train, {len(df_test)} test")
+        except ValueError as e:
+            # Fallback to regular split if stratification fails (e.g., too few samples per class)
+            self.logger.warning(f"Stratified split failed ({e}), using regular split")
+            df_train, df_test = train_test_split(
+                df_modified,
+                test_size=test_size,
+                random_state=random_state
+            )
+            self.logger.info(f"Created regular split: {len(df_train)} train, {len(df_test)} test")
+        
+        return self._select_best_model(df_train, df_test, random_state)
 
-        X_cont = df[self.non_onehot_columns].values if self.non_onehot_columns else np.empty((len(df), 0))
-        X = np.hstack([X_cont, X_cat])
-        y = df[self.secret_column].values.ravel()
-        classes = np.unique(y)
+    def build_model(
+        self,
+        df_train: pd.DataFrame,
+        df_test: pd.DataFrame,
+        random_state: Optional[int] = None
+    ) -> None:
+        if self.known_columns is None or self.secret_column is None:
+            raise ValueError("Must call select_model first")
+        
+        self._build_model_from_stored_config(df_train, df_test, random_state)
 
-        # This code is supposed to select the best model based on validation scores,
-        # but I'm doubtful that it really works well in practice. If we really want to
-        # do this, probably better to simply measure the prc score on the predictions
-        # themselves. TODO.
+    def _select_best_model(self, df_train: pd.DataFrame, df_test: pd.DataFrame, random_state: Optional[int]) -> Tuple[str, float]:
+        """Select the best model based on PRC scores."""
         models = [
             ("RandomForest", RandomForestClassifier(
                 random_state=random_state,
                 n_estimators=100,
             )),
-#            ("ExtraTrees", ExtraTreesClassifier(
-#                random_state=random_state,
-#                n_estimators=100,
-#            )),
-#            ("HistGB", HistGradientBoostingClassifier(
-#                random_state=random_state,
-#                max_iter=500,
-#            )),
-#            ("LogisticRegression", LogisticRegression(
-#                max_iter=5000,
-#                random_state=random_state
-#            )),
+            ("ExtraTrees", ExtraTreesClassifier(
+                random_state=random_state,
+                n_estimators=100,
+            )),
+            ("HistGB", HistGradientBoostingClassifier(
+                random_state=random_state,
+                max_iter=500,
+            )),
+            ("LogisticRegression", LogisticRegression(
+                max_iter=5000,
+                random_state=random_state
+            )),
         ]
-        if len(classes) < 2 or len(models) == 1:
-            best_model_name, best_model = models[0]
-            self.selected_model = best_model
-            self.selected_model_class = type(best_model)
-            self.selected_model_params = best_model.get_params()
-            self.logger.info(f"Selected 0th model by default: {best_model_name} with parameters: {self.selected_model_params}")
-            return best_model_name
-
-        def log_loss_with_labels(y_true, y_pred_proba, **kwargs):
-            # Only score if all classes are present and y_pred_proba is 2D
-            if y_pred_proba.ndim != 2 or y_pred_proba.shape[1] != len(classes):
-                return np.nan
-            return log_loss(y_true, y_pred_proba, labels=classes)
-
-        log_loss_scorer = make_scorer(
-            log_loss_with_labels,
-            greater_is_better=False,
-            needs_proba=True
-        )
-
-        cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=random_state)
-
-        best_score = -np.inf
+        
+        best_prc = -1
         best_model_name = None
-        best_model_class = None
-        best_model_params = None
-
-        for name, model in models:
+        best_df_pred_conf = None
+        
+        # Test OneToOnePredictor if available
+        if self.otop is not None:
             try:
-                scores = cross_val_score(model, X, y, cv=cv, scoring=log_loss_scorer)
-                valid_scores = scores[~np.isnan(scores)]
-                if len(valid_scores) == 0:
-                    continue  # Skip models with all nan scores
-                mean_score = valid_scores.mean()
-                if mean_score > best_score:
-                    best_score = mean_score
-                    best_model_class = type(model)
-                    best_model_params = model.get_params()
-                    best_model_name = name
-            except Exception:
-                continue  # Skip models that error out
-
-        # Fallback: If no model was selected, use the first model in the list
-        if best_model_class is None:
-            best_model_name, default_model = models[0]
-            best_model_class = type(default_model)
-            best_model_params = default_model.get_params()
-            self.logger.info(f"No model selected based on validation scores. Using default model: {best_model_name}")
+                df_pred_conf = self._build_otop_predictions(df_test)
+                prc_dict = self.si.compute_best_prc(df=df_pred_conf)
+                prc_score = prc_dict['prc']
+                self.logger.info(f"OneToOnePredictor PRC score: {prc_score:.4f}")
+                
+                if prc_score > best_prc:
+                    best_prc = prc_score
+                    best_model_name = "OneToOnePredictor"
+                    best_df_pred_conf = df_pred_conf
+            except Exception as e:
+                self.logger.warning(f"OneToOnePredictor failed: {e}")
+        
+        # Test ML models
+        self.logger.info("Determine best ML model:")
+        for model_name, model in models:
+            try:
+                self.logger.info(f"   Testing model: {model_name}")
+                df_pred_conf = self._build_ml_model_predictions(df_train, df_test, model)
+                prc_dict = self.si.compute_best_prc(df=df_pred_conf)
+                prc_score = prc_dict['prc']
+                self.logger.info(f"    {model_name} PRC score: {prc_score:.4f}")
+                for key, value in prc_dict.items():
+                    if key != 'prc':
+                        self.logger.info(f"          {key}: {value}")
+                
+                if prc_score > best_prc:
+                    best_prc = prc_score
+                    best_model_name = model_name
+                    best_df_pred_conf = df_pred_conf
+                    # Store model info for later use
+                    self.selected_model = model
+                    self.selected_model_class = type(model)
+                    self.selected_model_params = model.get_params()
+                    
+            except Exception as e:
+                self.logger.warning(f"{model_name} failed: {e}")
+                continue
+        
+        if best_model_name is None:
+            raise ValueError("No model could be successfully trained")
+        
+        # Store results
+        self.selected_model_name = best_model_name
+        self.df_pred_conf = best_df_pred_conf
+        self.selected_model_prc = best_prc
+        
+        if best_model_name != "OneToOnePredictor":
+            self.otop = None  # Clear if ML model was selected
+        
+        self.logger.info(f"Selected model: {best_model_name} with PRC score: {best_prc:.4f}")
+        return best_model_name, best_prc
+    
+    def _build_model_from_stored_config(self, df_train: pd.DataFrame, df_test: pd.DataFrame, random_state: Optional[int]) -> None:
+        """Build model using previously stored configuration."""
+        if self.selected_model_name == "OneToOnePredictor":
+            if self.otop is None:
+                raise ValueError("OneToOnePredictor was selected but otop is None")
+            self.df_pred_conf = self._build_otop_predictions(df_test)
         else:
-            self.logger.info(f"Selected model: {best_model_name} with score: {best_score:.4f}")
+            # Rebuild ML model with new training data
+            model_class = self.selected_model_class
+            model_params = self.selected_model_params.copy()
+            if random_state is not None and "random_state" in model_params:
+                model_params["random_state"] = random_state
+            
+            model = model_class(**model_params)
+            self.df_pred_conf = self._build_ml_model_predictions(df_train, df_test, model)
+    
+    def _build_otop_predictions(self, df_test: pd.DataFrame) -> pd.DataFrame:
+        """Build predictions using OneToOnePredictor."""
+        predictions = []
+        for _, row in df_test.iterrows():
+            feature_value = row[self.otop.feature_name]
+            try:
+                predicted_value = self.otop.predict(feature_value)
+                true_value = row[self.secret_column]
+                prediction = (predicted_value == true_value)
+                confidence = 1.0
+                
+                predictions.append({
+                    'predicted_value': predicted_value,
+                    'prediction': prediction,
+                    'confidence': confidence
+                })
+            except KeyError:
+                # Skip rows with unknown feature values
+                continue
+        
+        return pd.DataFrame(predictions)
+    
+    def _build_ml_model_predictions(self, df_train: pd.DataFrame, df_test: pd.DataFrame, model) -> pd.DataFrame:
+        """Build predictions using ML model."""
+        # Prepare training data
+        X_train, y_train = self._prepare_features_and_target(df_train)
+        model.fit(X_train, y_train)
+        
+        # Prepare test data and make predictions
+        X_test, y_test = self._prepare_features_and_target(df_test)
+        predicted_values = model.predict(X_test)
+        
+        if hasattr(model, 'predict_proba'):
+            probabilities = model.predict_proba(X_test)
+            confidences = []
+            for i, pred_val in enumerate(predicted_values):
+                if pred_val in model.classes_:
+                    class_idx = model.classes_.tolist().index(pred_val)
+                    confidences.append(probabilities[i][class_idx])
+                else:
+                    confidences.append(0.0)
+        else:
+            confidences = [0.5] * len(predicted_values)  # Default confidence for models without predict_proba
+        
+        predictions = []
+        for i, (pred_val, true_val, conf) in enumerate(zip(predicted_values, y_test, confidences)):
+            predictions.append({
+                'predicted_value': pred_val,
+                'prediction': (pred_val == true_val),
+                'confidence': conf
+            })
+        
+        return pd.DataFrame(predictions)
+    
+    def _prepare_features_and_target(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+        """Prepare feature matrix and target vector."""
+        # Handle categorical features with one-hot encoding
+        if self.onehot_columns:
+            if self.encoder is None:
+                self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+                X_cat = self.encoder.fit_transform(df[self.onehot_columns])
+            else:
+                X_cat = self.encoder.transform(df[self.onehot_columns])
+        else:
+            X_cat = np.empty((len(df), 0))
+        
+        # Handle continuous features
+        X_cont = df[self.non_onehot_columns].values if self.non_onehot_columns else np.empty((len(df), 0))
+        
+        # Combine features
+        X = np.hstack([X_cont, X_cat])
+        
+        # Prepare target
+        y = df[self.secret_column].values.ravel()
+        if y.dtype == object:
+            try:
+                y = y.astype(int)
+            except Exception:
+                y = y.astype(str)
+        
+        return X, y
 
-        self.selected_model_class = best_model_class
-        self.selected_model_params = best_model_params
-        self.logger.info(f"Selected model: {best_model_name} with parameters: {best_model_params}")
-        return best_model_name
-
-    def _detect_and_reclassify_correlated_categoricals(self, df: pd.DataFrame) -> Optional[OneToOnePredictor]:
+    def _detect_and_reclassify_correlated_categoricals(self, df_train: pd.DataFrame) -> Optional[OneToOnePredictor]:
         """
         Detect categorical features that should be treated as continuous and reclassify them.
         
-        Detects several cases:
-        1. Near-perfect correlation with target (99%+ mapping accuracy)
-        2. Monotonic relationship with target
-        3. High correlation when treated as continuous vs categorical
-        4. Too many distinct values (>100)
+        Simplified version that only checks for near-perfect correlation.
         
         Returns:
             OneToOnePredictor if a near-perfect relationship is found, None otherwise
         """
-        if not self.onehot_columns or not isinstance(self.secret_column, str) or self.secret_column not in df.columns:
+        if not self.onehot_columns or not self.secret_column or self.secret_column not in df_train.columns:
             return None
             
-        target_values = df[self.secret_column]
-        columns_to_reclassify = []
+        target_values = df_train[self.secret_column]
         otop_candidates = []  # Store (column, correlation_ratio) pairs
         
         for cat_col in self.onehot_columns[:]:  # Create a copy to iterate over
-            if cat_col not in df.columns:
+            if cat_col not in df_train.columns:
                 continue
                 
-            feature_values = df[cat_col]
+            feature_values = df_train[cat_col]
             
-            # Case 1: Near-perfect correlation between categorical feature and target (99%+)
+            # Check for near-perfect correlation between categorical feature and target (95%+)
             correlation_ratio = self._calculate_correlation_ratio(feature_values, target_values)
-            if correlation_ratio >= 0.99:
-                columns_to_reclassify.append((cat_col, f"near-perfect correlation with target ({correlation_ratio:.6f})"))
+            if correlation_ratio >= 0.95:
+                self.logger.info(f"Reclassifying column '{cat_col}' as OneToOnePredictor due to near-perfect correlation ({correlation_ratio:.6f})")
                 otop_candidates.append((cat_col, correlation_ratio))
-                continue
+                # Remove from onehot_columns and add to non_onehot_columns
+                self.onehot_columns.remove(cat_col)
+                if cat_col not in self.non_onehot_columns:
+                    self.non_onehot_columns.append(cat_col)
                     
-            # Case 2: Monotonic relationship with target when treated as continuous
-            if self._has_monotonic_relationship(feature_values, target_values):
-                columns_to_reclassify.append((cat_col, "monotonic relationship with target"))
-                continue
-                
-            # Case 3: Better correlation as continuous than categorical
-            if self._better_as_continuous(feature_values, target_values):
-                columns_to_reclassify.append((cat_col, "stronger continuous correlation"))
-                continue
-                
-            # Case 4: Too many distinct values for categorical treatment
-            if feature_values.nunique() > 100:
-                columns_to_reclassify.append((cat_col, "too many distinct values (>100)"))
-                continue
-                
         # Select the best one-to-one predictor candidate (highest correlation ratio)
-        otop = None
         if otop_candidates:
             best_col, best_ratio = max(otop_candidates, key=lambda x: x[1])
-            otop = OneToOnePredictor(df, feature=best_col, target=self.secret_column)
-            self.logger.info(f"Selected OneToOnePredictor for column '{best_col}' with correlation ratio: {best_ratio:.6f} out of {len(otop_candidates)} candidates")
+            otop = OneToOnePredictor(df_train, feature=best_col, target=self.secret_column)
+            self.logger.info(f"Selected OneToOnePredictor for column '{best_col}' with correlation ratio: {best_ratio:.6f}")
+            return otop
                 
-        # Reclassify identified columns as continuous
-        for col, reason in columns_to_reclassify:
-            self.logger.info(f"Reclassifying column '{col}' as continuous because: {reason}")
-            self.onehot_columns.remove(col)
-            if col not in self.non_onehot_columns:
-                self.non_onehot_columns.append(col)
-                
-        return otop
+        return None
 
     def _calculate_correlation_ratio(self, feature_series: pd.Series, target_series: pd.Series) -> float:
         """
@@ -270,154 +390,21 @@ class BaselinePredictor:
                 
         return matches / len(feature_series)
 
-    def _has_one_to_one_correlation(self, feature_series: pd.Series, target_series: pd.Series) -> bool:
-        """Check if there's a near-perfect 1-1 correlation between feature and target."""
-        # Create a mapping from feature values to target values
-        feature_to_target = {}
-        target_to_feature = {}
+    def predict(self, index: int) -> Tuple[Any, float]:
+        """
+        Predict using the stored prediction data structure.
         
-        for feat_val, target_val in zip(feature_series, target_series):
-            # Check feature -> target mapping
-            if feat_val in feature_to_target:
-                if feature_to_target[feat_val] != target_val:
-                    return False  # Feature value maps to multiple target values
-            else:
-                feature_to_target[feat_val] = target_val
-                
-            # Check target -> feature mapping  
-            if target_val in target_to_feature:
-                if target_to_feature[target_val] != feat_val:
-                    return False  # Target value maps to multiple feature values
-            else:
-                target_to_feature[target_val] = feat_val
-                
-        # Ensure we have the same number of unique values
-        return len(set(feature_series)) == len(set(target_series))
+        Args:
+            index: Index into the df_pred_conf DataFrame
+            
+        Returns:
+            Tuple of (predicted_value, confidence)
+        """
+        if self.df_pred_conf is None:
+            raise ValueError("Model has not been built yet. Call build_model() first.")
         
-    def _has_monotonic_relationship(self, feature_series: pd.Series, target_series: pd.Series) -> bool:
-        """Check if feature has monotonic relationship with target."""
-        try:
-            # Group by feature value and compute target means
-            grouped = pd.DataFrame({'feature': feature_series, 'target': target_series}).groupby('feature')['target']
-            
-            if target_series.dtype == 'object' or target_series.dtype.name == 'category':
-                # For categorical targets, use mode
-                feature_target_means = grouped.agg(lambda x: x.mode().iloc[0] if len(x.mode()) > 0 else x.iloc[0])
-            else:
-                feature_target_means = grouped.mean()
-                
-            if len(feature_target_means) < 3:  # Need at least 3 points to assess monotonicity
-                return False
-                
-            # Sort by feature value
-            sorted_means = feature_target_means.sort_index()
-            values = sorted_means.values
-            
-            # Check if monotonically increasing or decreasing
-            is_increasing = all(values[i] <= values[i+1] for i in range(len(values)-1))
-            is_decreasing = all(values[i] >= values[i+1] for i in range(len(values)-1))
-            
-            return is_increasing or is_decreasing
-        except:
-            return False
-            
-    def _better_as_continuous(self, feature_series: pd.Series, target_series: pd.Series) -> bool:
-        """Check if feature has better predictive power as continuous vs categorical."""
-        try:
-            # Only apply to high-cardinality features (>5 unique values)
-            if feature_series.nunique() <= 5:
-                return False
-                
-            # Convert target to numeric if needed for correlation computation
-            if target_series.dtype == 'object' or target_series.dtype.name == 'category':
-                from sklearn.preprocessing import LabelEncoder
-                le = LabelEncoder()
-                target_numeric = le.fit_transform(target_series.astype(str))
-            else:
-                target_numeric = target_series
-                
-            # Compute correlation treating feature as continuous
-            continuous_corr = abs(np.corrcoef(feature_series, target_numeric)[0, 1])
-            
-            # Compute "categorical effectiveness" using variance explained by grouping
-            grouped_var = pd.DataFrame({'feature': feature_series, 'target': target_numeric}).groupby('feature')['target'].var()
-            total_var = target_numeric.var()
-            within_group_var = grouped_var.mean()
-            categorical_effectiveness = 1 - (within_group_var / total_var) if total_var > 0 else 0
-            
-            # Prefer continuous if correlation is strong (>0.4) and stronger than categorical
-            return continuous_corr > 0.4 and continuous_corr > categorical_effectiveness
-        except:
-            return False
-
-    def build_model(
-        self,
-        df: pd.DataFrame,
-        random_state: Optional[int] = None
-    ) -> None:
-        # If using one-to-one predictor, no model building needed
-        if self.otop is not None:
-            return
-            
-        if not hasattr(self, "selected_model_class") or self.selected_model_class is None:
-            raise ValueError("No model has been selected. Call select_model() first.")
-
-        model_class = self.selected_model_class
-        model_params = self.selected_model_params.copy()
-        if random_state is not None and "random_state" in model_params:
-            model_params["random_state"] = random_state
-        self.model = model_class(**model_params)
-
-        self.logger.info(f"Building model with categorical columns: {self.onehot_columns}, continuous columns: {self.non_onehot_columns}")
-        if self.onehot_columns:
-            if self.encoder is None:
-                self.encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
-                X_cat = self.encoder.fit_transform(df[self.onehot_columns])
-            else:
-                X_cat = self.encoder.transform(df[self.onehot_columns])
-        else:
-            X_cat = np.empty((len(df), 0))
-        X_cont = df[self.non_onehot_columns].values if self.non_onehot_columns else np.empty((len(df), 0))
-        X = np.hstack([X_cont, X_cat])
-
-        y = df[self.secret_column].values.ravel()
-        if y.dtype == object:
-            try:
-                y = y.astype(int)
-            except Exception:
-                y = y.astype(str)
-
-        self.logger.info(f"    Building model with {len(X)} samples and {X.shape[1]} features")
-        self.model.fit(X, y)
-
-    def predict(self, df_row: pd.DataFrame) -> Tuple[Any, float]:
-        # Use one-to-one predictor if available
-        if self.otop is not None:
-            feature_value = df_row[self.otop.feature_name].iloc[0]
-            try:
-                prediction = self.otop.predict(feature_value)
-                return prediction, 1.0  # Perfect confidence for 1-1 mapping
-            except KeyError:
-                # If feature value not found, fall back to most common target value
-                # This shouldn't happen in normal cases but provides a safety net
-                raise ValueError(f"Feature value '{feature_value}' not found in one-to-one mapping")
+        if index < 0 or index >= len(self.df_pred_conf):
+            raise IndexError(f"Index {index} out of range for prediction data of length {len(self.df_pred_conf)}")
         
-        if self.model is None:
-            raise ValueError("Model has not been built yet")
-
-        model_name = type(self.model).__name__
-
-        if self.onehot_columns:
-            X_cat = self.encoder.transform(df_row[self.onehot_columns])
-        else:
-            X_cat = np.empty((len(df_row), 0))
-        X_cont = df_row[self.non_onehot_columns].values if self.non_onehot_columns else np.empty((len(df_row), 0))
-        X = np.hstack([X_cont, X_cat])
-
-        prediction = self.model.predict(X)[0]
-        if hasattr(self.model, "predict_proba"):
-            base_confidence = self.model.predict_proba(X)[0]
-            base_confidence = base_confidence[self.model.classes_.tolist().index(prediction)]
-        else:
-            base_confidence = None
-        return prediction, base_confidence
+        row = self.df_pred_conf.iloc[index]
+        return row['predicted_value'], row['confidence']

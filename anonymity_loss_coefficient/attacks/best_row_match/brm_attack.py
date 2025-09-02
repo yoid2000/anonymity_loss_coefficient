@@ -28,6 +28,7 @@ class BrmAttack:
                  match_method: str = 'gower',
                  ) -> None:
         # up to work with ML modeling
+
         self.max_num_anon_datasets = max_num_anon_datasets
         self.prior_experiment_swap_fraction = prior_experiment_swap_fraction
         self.flush = flush
@@ -84,7 +85,7 @@ class BrmAttack:
         self.logger.info("Columns are classified as:")
         self.logger.info(pp.pformat(self.alcm.get_column_classification_dict()))
 
-    def run_all_columns_attack(self, secret_columns: List[str] = None) -> None:
+    def run_all_columns_attack(self, secret_columns: Optional[List[str]] = None) -> None:
         '''
         Runs attacks assuming all columns except secret are known
         '''
@@ -102,6 +103,8 @@ class BrmAttack:
             known_columns = self.all_known_columns
         self.logger.info(f"\nAttack secret column {secret_column}\n    assuming {len(known_columns)} known columns {known_columns}")
         counter = 1
+        last_alc = None
+        last_reason = None
         for atk_row, _, _ in self.alcm.predictor(known_columns, secret_column):
             # Note that atk_row contains only the known_columns
             encoded_predicted_value, prediction_confidence = self._best_row_attack(atk_row, secret_column)
@@ -113,7 +116,15 @@ class BrmAttack:
             counter += 1
             if self.no_counter is False:
                 if 'alc' in self.alcm.halt_info:
-                    print(f"\r{counter} alc:{self.alcm.halt_info['alc']} {self.alcm.halt_info['reason']}", end="")
+                    last_alc = self.alcm.halt_info['alc']
+                if last_reason is None:
+                    last_reason = self.alcm.halt_info['reason']
+                else:
+                    if last_reason != self.alcm.halt_info['reason']:
+                        last_reason = self.alcm.halt_info['reason']
+                        print('')
+                if last_alc is not None:
+                    print(f"\r{counter} alc:{last_alc} {self.alcm.halt_info['reason']}", end="")
                 else:
                     print(f"\r{counter} {self.alcm.halt_info['reason']}", end="")
         if self.no_counter is False:

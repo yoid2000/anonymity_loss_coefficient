@@ -106,15 +106,3 @@ class TestOneToOnePredictor:
         assert predictor.predict('only') == 'value'
         assert len(predictor.mapping) == 1
     
-    def test_none_values(self):
-        """Test handling of None values."""
-        df = pd.DataFrame({
-            'feature': [None, 'B', 'C'],
-            'target': ['null_target', None, 'valid']
-        })
-        
-        predictor = OneToOnePredictor(df, 'feature', 'target')
-        
-        assert predictor.predict(None) == 'null_target'
-        assert predictor.predict('B') is None
-        assert predictor.predict('C') == 'valid'

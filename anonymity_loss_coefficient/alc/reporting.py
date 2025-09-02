@@ -109,7 +109,7 @@ class Reporter():
         return self._filter_df(df_secret_known_results, known_columns, secret_column)
 
     def _alc_per_secret_and_known(self,
-                                  score_info: List[Dict],
+                                  data: Dict,
                                   halt_code: str,
                                   elapsed_time: float,
                                   model_name: str,
@@ -164,21 +164,29 @@ class Reporter():
         return json.dumps(sorted(known_columns))
 
     def consolidate_results(self,
-                            score_info: List[Dict],
+                            data: Dict,
+                            secret_column: str,
+                            known_columns: List[str],
                             halt_code: str,
                             elapsed_time: float,
                             model_name: str,
                             alcp: ALCParams) -> None:
+        # move the results from the list to a dataframe
+        data['secret_column'] = secret_column
+        data['known_columns'] = self._make_known_columns_str(known_columns)
+        data['num_known_columns'] = len(known_columns)
+        data['halt_code'] = halt_code
+        data['elapsed_time'] = elapsed_time
+        data['model_name'] = model_name
+        for group_name, param, value in alcp.iter_params():
+            data[f'{group_name}_{param}'] = value
+        # At this point, self.list_results contains the results of the latest attack only
         if len(self.list_results) == 0:
             self.logger.warning("Warning: No results to consolidate.")
-            return
-        # move the results from the list to a dataframe
-        list_secret_known_results = self._alc_per_secret_and_known(score_info, halt_code, elapsed_time, model_name, alcp)
-        # At this point, self.list_results, and list_secret_known_results
-        # contain the results of the latest attack only
-        self.list_results_done += self.list_results
+        else:
+            self.list_results_done += self.list_results
         self.list_results = []
-        self.list_secret_known_results_done += list_secret_known_results
+        self.list_secret_known_results_done.append(data)
 
     def summarize_results(self,
                           strong_thresh: float = 0.5,
@@ -214,16 +222,6 @@ class Reporter():
                             risk_thresh,
                             self.attack_name,
                             os.path.join(self.results_path, 'alc_prec_plot.png'))
-                plot_alc_best(df_secret_known_results,
-                            strong_thresh,
-                            risk_thresh,
-                            self.attack_name,
-                            os.path.join(self.results_path, 'alc_plot_best.png'))
-                plot_alc_prec_best(df_secret_known_results,
-                            strong_thresh,
-                            risk_thresh,
-                            self.attack_name,
-                            os.path.join(self.results_path, 'alc_prec_plot_best.png'))
         return True
 
 
@@ -258,15 +256,6 @@ class Reporter():
 
 def clean_up_results_files(results_path: str) -> None:
     pass
-
-def plot_alc_prec_best(df: pd.DataFrame,
-                  strong_thresh: float, risk_thresh: float,
-                  attack_name: str,
-                  file_path: str) -> None:
-    if len(df) < 10:
-        return
-    df_best = df[df['paired'] == False].copy()
-    _plot_alc_prec(df_best, strong_thresh, risk_thresh, attack_name, file_path)
 
 def plot_alc_prec(df: pd.DataFrame,
                   strong_thresh: float, risk_thresh: float,
@@ -312,15 +301,6 @@ def _plot_alc_prec(df: pd.DataFrame,
 
     plt.savefig(file_path)
     plt.close()
-
-def plot_alc_best(df: pd.DataFrame,
-                  strong_thresh: float, risk_thresh: float,
-                  attack_name: str,
-                  file_path: str) -> None:
-    if len(df) < 10:
-        return
-    df_best = df[df['paired'] == False].copy()
-    _plot_alc(df_best, strong_thresh, risk_thresh, attack_name, file_path)
 
 def plot_alc(df: pd.DataFrame,
              strong_thresh: float, risk_thresh: float,
