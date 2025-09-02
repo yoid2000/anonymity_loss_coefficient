@@ -173,7 +173,6 @@ class ALCManager:
                           si_confidence=self.alcp.si.si_confidence,
                           logger=self.logger)
 
-        # zzzz
         self.model_name, self.expected_prc = self.base_pred.select_model(self.df.orig_all,
                     known_columns=known_columns, 
                     secret_column=secret_column, 

@@ -58,7 +58,6 @@ class OneToOnePredictor:
         """
         if feature_value not in self.mapping:
             raise KeyError(f"Feature value '{feature_value}' not found in mapping")
-        
         return self.mapping[feature_value]
 
 class BaselinePredictor:

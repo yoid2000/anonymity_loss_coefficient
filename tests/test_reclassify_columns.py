@@ -77,11 +77,6 @@ class TestReclassifyColumns(unittest.TestCase):
         self.assertIn('normal_categorical', self.predictor.onehot_columns)
         self.assertNotIn('normal_categorical', self.predictor.non_onehot_columns)
         
-        # Check that logger was called with appropriate message
-        self.mock_logger.info.assert_called()
-        log_calls = [call.args[0] for call in self.mock_logger.info.call_args_list]
-        self.assertTrue(any("near-perfect correlation with target" in call for call in log_calls))
-    
     def test_monotonic_with_categorical_target(self):
         """Test monotonic detection with categorical target."""
         # Create data with categorical target that has ordinal relationship

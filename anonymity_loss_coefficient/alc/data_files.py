@@ -56,8 +56,18 @@ class DataFiles:
             self.anon = anon
         else:
             raise ValueError("anon must be either a pandas DataFrame or a list of pandas DataFrames")
+        orig_rows_before_dropna = self.orig_all.shape[0]
         self.orig_all = self.orig_all.dropna()
+        if self.orig_all.shape[0] == 0:
+            raise ValueError("Original DataFrame is empty after dropping NaN values.")
+        if orig_rows_before_dropna - self.orig_all.shape[0] > 0:
+            print(f"Dropped {orig_rows_before_dropna - self.orig_all.shape[0]} rows with NaN values from original data")
+        anon_rows_before_dropna = [df.shape[0] for df in self.anon]
         self.anon = [df.dropna() for df in self.anon]
+
+        for i, df in enumerate(self.anon):
+            if anon_rows_before_dropna[i] - df.shape[0] > 0:
+                print(f"Dropped {anon_rows_before_dropna[i] - df.shape[0]} rows with NaN values from anonymized data at index {i}")
 
         self.columns_for_discretization = self._select_columns_for_discretization()
         self.new_discretized_columns = [f"{col}__discretized" for col in self.columns_for_discretization]
