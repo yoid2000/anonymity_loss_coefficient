@@ -189,15 +189,6 @@ class ScoreInterval:
                    halt_loose_expected_prc_closeness: float = 0.05,
                    halt_tight_expected_prc_closeness: float = 0.01,
                    ) -> Dict[str, Any]:
-        ''' Monitors the progress of the attack and baseline, and determines if
-        the results of both are significant enough to halt the predictor loop.
-        Operates by periodically computing the best PRC scores for both attack
-        and baseline using _compute_best_prc(), and checking for
-        diminishing returns in improving PRC.
-        It makes its first prc measures when there are min_samples predictions. Subsequently,
-        it measures prcs every sample_period additional predictions, and compares the prc values
-        to the prior measures.
-        '''
         if len(self.df_base) != len(self.df_attack):
             # throw and exception
             raise ValueError(f"Error: The number of base and attack predictions are not the same. Base: {len(self.df_base)}, Attack: {len(self.df_attack)}")
