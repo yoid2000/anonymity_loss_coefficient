@@ -148,42 +148,54 @@ for atk_row, _, _ in alcm.predictor(known_columns, secret_column):
 
 print("\nThat's really all there is to it! There are a few ways in which we can now look at the results of the attack.")
 
-print("\nAfter the predictions loop, we can get a dataframe listing every prediction using the `prediction_results()` method. Here is an example of a row for an individual attack prediction:")
+print(f"\nAfter the predictions loop, we can get a dataframe listing every prediction using the `prediction_results()` method.")
+
 print('''
 ```
 df_results = alcm.prediction_results()
-print(df_results[df_results['predict_type'] == 'attack'].iloc[0])
 ```
 ''')
 df_results = alcm.prediction_results()
+
+print(f"Despite the fact that there are {len(df_original)} rows in the original data to attack, there are only {len(df_results)} predictions in total, {len(df_results[df_results['predict_type'] == 'attack'])} attack predictions and {len(df_results[df_results['predict_type'] == 'base'])} are baseline predictions. This is because the attack loop automatically stops when confidence intervals are tight enough to make a statistically significant conclusion about the ALC.")
+
+print("\nHere is an example of a row for an individual attack prediction:")
+print('''
+```
+print(df_results[df_results['predict_type'] == 'attack'].iloc[0])
+```
+''')
 cb()
 print(df_results[df_results['predict_type'] == 'attack'].iloc[0])
 cb()
 
-unique_levels = df_results[df_results['predict_type'] == 'attack']['attack_confidence'].unique()
+attack_confidence_counts = (
+    df_results[df_results['predict_type'] == 'attack']['attack_confidence']
+    .value_counts()
+    .sort_index(ascending=False)
+)
 
-print(f"\nNote that attack_confidence is 1.0. For this particular type of attack, this means that all of the rows that matched the known columns agreed on the predicted value. Different predictions, however, may have different confidence levels. In this case, we see that, among the predictions, there are {len(unique_levels)} unique confidence levels:")
+print(f"\nNote that attack_confidence is 1.0. For this particular type of attack, this means that all of the rows that matched the known columns agreed on the predicted value. Different predictions, however, may have different confidence levels. In this case, we see that, among the attack predictions, there are {len(attack_confidence_counts)} unique confidence levels, shown here with their associated counts:")
 
-print("\n`df_results[df_results['predict_type'] == 'attack']['attack_confidence'].unique()`")
+print("\n`df_results[df_results['predict_type'] == 'attack']['attack_confidence'].value_counts().sort_index(ascending=False)`")
 cb()
-print(df_results[df_results['predict_type'] == 'attack']['attack_confidence'].unique())
+print(attack_confidence_counts)
 cb()
 
-print("\nThe method `results()` groups the individual attack predictions by secret column and known columns, and computes a variety of scores including precision, recall, and ALC. When there are multiple confidence levels, the PredictionResults class computes the ALC for different recall values starting with only the highest confidence predictions (low recall), and working through lower confidence predictions.")
+print("\nThe method `results()` computes the ALC and related scores for each combination of known columns and secret column. To do this, it separately finds the recall value that produces the highest Precision-Recall Coefficient (PRC) score for both baseline and attack. This represents both the most effective baseline and attack. Using these PRC scores, it computes the ALC.")
+
 print("\n`df_per_comb_results = alcm.results(known_columns=known_columns, secret_column=secret_column)`")
 df_per_comb_results = alcm.results(known_columns=known_columns, secret_column=secret_column)
 
-print("\nLet's look at the precision, recall, and ALC scores:")
-print("\n`df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc', 'atk_bar']]`")
+print("\nLet's look at the precision, recall, PRC, and ALC scores (and one of the tags):")
+print("\n`df_per_comb_results[['base_prec', 'base_recall', 'base_prc', 'attack_prec', 'attack_recall', 'attack_prc', 'alc', 'atk_bar']]`")
 cb()
-print(df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc', 'atk_bar']])
+print(df_per_comb_results[['base_prec', 'base_recall', 'base_prc', 'attack_prec', 'attack_recall', 'attack_prc', 'alc', 'atk_bar']])
 cb()
 
-print("\nAs it so happens, there is no correlation between 't1' and 'i2' or 'f1'. As a result, the baseline precision is always quite low. By contrast, because our anonymity is weak, attack precision is uniformly high. The fact that attack precision is greater than baseline precision leads to high ALC scores, showing that anonymity is indeed weak.")
+print("\nAs it so happens in this case, there is no correlation between 't1' and 'i2' or 'f1'. As a result, the baseline precision is quite low. By contrast, because our anonymity is weak, attack precision is high. This leads to a high ALC score, showing that anonymity is indeed weak.")
 
-print("\nThe `paired` column indicates whether the ALC score is generated from a pair of closely-matched recall values for attack and baseline. If `False`, then the ALC score is generated from the best attack Privacy-Recall Coefficient (PRC) and the best baseline PRC regardless of recall. This represents the most appropriate ALC score (though not necessarily the highest ALC score).")
-
-print("\nNote that the attack tags are placed in this output as 'atk_key' columns names.")
+print("\nNote that the attack tags are placed in this output as 'atk_<key>' columns names.")
 
 print("\nLet's run a second attack, here assuming that the attacker knows the value of column 'i1' and wants to predict the value of column 't1'.")
 known_columns = ['i1']
@@ -195,13 +207,16 @@ for atk_row, _, _ in alcm.predictor(known_columns, secret_column):
     else:
         alcm.prediction(encoded_predicted_value, confidence)
 
-print("\nLet's look at the precision, recall, and ALC scores for the second attack:")
+print("\nLet's look at the scores for the second attack:")
 df_per_comb_results = alcm.results(known_columns=known_columns, secret_column=secret_column)
 cb()
-print(df_per_comb_results[['paired', 'base_prec', 'base_recall', 'attack_prec', 'attack_recall', 'alc']])
+print(df_per_comb_results[['base_prec', 'base_recall', 'base_prc', 'attack_prec', 'attack_recall', 'attack_prc', 'alc']])
 cb()
 
-print("\nHere we see quite a different story. Since 'i1' and 't1' are perfectly correlated, all baseline predictions are correct. (The reason `base_prec` is not perfect is because of how we compute precision: as the midpoint of the confidence interval rather than the actual predictions. The actual sampled precision, however, is also computed and can be viewed.) As it so happens, all attack predictions are also correct. (In this case, `attack_prec` is lower for lower recall values only because the confidence bounds are larger.). Because the attack precision is no better than the base precision, the ALC is at best 0.0, meaning no loss of anonymity.")
+print("\nHere we see quite a different story. Since 'i0' and 't1' are perfectly correlated, all baseline predictions are correct."
+"As it so happens, all attack predictions are also correct." \
+"(The reason `base_prec` and `attack_prec` are not perfect is because of how we compute precision: as the midpoint of the confidence interval rather than the actual predictions. The actual sampled precision, however, is also computed and can be viewed.)" \
+"Because the attack precision is no better than the base precision, the ALC is -1.0, meaning no loss of anonymity.")
 
 print("\nBesides being able to obtain the results as dataframes, the method `summarize_results()` writes the results to CSV files and can generate plots as well:")
 

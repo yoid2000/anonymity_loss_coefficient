@@ -5,6 +5,9 @@ import pandas as pd
 import logging
 import random
 import time
+import tempfile
+import shutil
+from uuid import uuid4
 from .reporting import *
 from .data_files import DataFiles
 from .baseline_predictor import BaselinePredictor
@@ -12,7 +15,7 @@ from .score_interval import ScoreInterval
 from .anonymity_loss_coefficient import AnonymityLossCoefficient
 from .reporting import Reporter
 from .params import ALCParams
-from anonymity_loss_coefficient.utils import setup_logging
+from anonymity_loss_coefficient.utils import setup_logging, setup_null_logger
 import pprint
 pp = pprint.PrettyPrinter(indent=4)
 
@@ -20,7 +23,7 @@ pp = pprint.PrettyPrinter(indent=4)
 class ALCManager:
     def __init__(self, df_original: pd.DataFrame,
                        anon: Union[pd.DataFrame, List[pd.DataFrame]],
-                       results_path: str,
+                       results_path: Optional[str] = None,
                        attack_name: str = '',
                        logger: Optional[logging.Logger] = None,
                        flush: bool = False,
@@ -86,10 +89,37 @@ class ALCManager:
             for k, v in attack_tags.items():
                 self.alcp.set_param(self.alcp.atk, k, v)
 
+        self._temp_dir: Optional[tempfile.TemporaryDirectory] = None
+        self._manual_temp_dir: Optional[str] = None
+        if results_path is None:
+            temp_dir = None
+            try:
+                temp_dir = tempfile.TemporaryDirectory(prefix='alc_manager_')
+                # Verify the created directory is actually usable.
+                os.listdir(temp_dir.name)
+                self._temp_dir = temp_dir
+                self.results_path = temp_dir.name
+            except Exception:
+                if temp_dir is not None:
+                    try:
+                        temp_dir.cleanup()
+                    except Exception:
+                        pass
+                self._manual_temp_dir = os.path.join(os.getcwd(), f'alc_manager_{uuid4().hex}')
+                os.makedirs(self._manual_temp_dir, exist_ok=False)
+                self.results_path = self._manual_temp_dir
+        else:
+            self.results_path = results_path
+
+        self._owns_logger = False
         self.logger = logger
         if self.logger is None:
-            logger_path = os.path.join(results_path, 'alc_manager.log')
-            self.logger = setup_logging(log_file_path=logger_path)
+            self._owns_logger = True
+            if results_path is None:
+                self.logger = setup_null_logger()
+            else:
+                logger_path = os.path.join(self.results_path, 'alc_manager.log')
+                self.logger = setup_logging(log_file_path=logger_path)
         self.df = DataFiles(
                  df_original=df_original,
                  anon=anon,
@@ -124,7 +154,7 @@ class ALCManager:
         self.halt_tight_expected_prc_closeness = self.alcp.alcm.halt_tight_expected_prc_closeness
         self.attack_in_progress = False
 
-        self.rep = Reporter(results_path=results_path,
+        self.rep = Reporter(results_path=self.results_path,
                             attack_name=attack_name,
                             logger=self.logger,
                             flush=flush,)
@@ -142,12 +172,22 @@ class ALCManager:
         # Other
         self.start_time = None
 
-    def close_logger(self):
-        """Closes all handlers attached to the logger."""
-        if hasattr(self, 'logger') and self.logger:
+    def cleanup(self):
+        """Closes owned logger handlers and cleans up temp directory if used."""
+        if getattr(self, '_owns_logger', False) and hasattr(self, 'logger') and self.logger:
             for handler in self.logger.handlers[:]:
                 self.logger.removeHandler(handler)
                 handler.close()
+        if hasattr(self, '_temp_dir') and self._temp_dir is not None:
+            try:
+                self._temp_dir.cleanup()
+            except Exception:
+                pass
+            self._temp_dir = None
+        if hasattr(self, '_manual_temp_dir') and self._manual_temp_dir is not None:
+            if os.path.exists(self._manual_temp_dir):
+                shutil.rmtree(self._manual_temp_dir, ignore_errors=True)
+            self._manual_temp_dir = None
 
     def predictor(self,
                   known_columns: List[str],

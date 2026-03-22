@@ -205,7 +205,7 @@ class ScoreInterval:
         base_prc_res = self._compute_best_prc(pred_type='base', max_prec_interval=halt_interval_tight)
         attack_prc_res = self._compute_best_prc(pred_type='attack', max_prec_interval=halt_interval_tight)
         data = self._compile_data(base_prc_res, attack_prc_res)
-        self.logger.info(f"\nCheckpoint: {len(self.df_base)} predictions: {data}")
+        self.logger.debug(f"\nCheckpoint: {len(self.df_base)} predictions: {data}")
         if base_prc_res['n'] == 0 or attack_prc_res['n'] == 0:
             # We couldn't get a tight confidence interval, so let's get a loose one
             # and see if we can early halt
@@ -270,7 +270,7 @@ class ScoreInterval:
             self.best_attack_prc = attack_prc_res
         if base_progress is False and attack_progress is False:
             data = self._compile_data(self.best_base_prc, self.best_attack_prc)
-            self.logger.info(f"\nCheckpoint: {len(self.df_base)} predictions: {data}")
+            self.logger.debug(f"\nCheckpoint: {len(self.df_base)} predictions: {data}")
             if data['alc'] < halt_ignore_expected_prc_alc_thresh:
                 return {'halted': True,
                         'alc': data['alc'],

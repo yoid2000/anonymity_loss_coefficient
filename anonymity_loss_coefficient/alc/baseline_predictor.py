@@ -104,10 +104,10 @@ class BaselinePredictor:
         # Determine test size
         if len(df_modified) < 6000:
             test_size = 0.5
-            self.logger.info(f"Dataset has {len(df_modified)} rows (<6000), using 50% for test set")
+            self.logger.debug(f"Dataset has {len(df_modified)} rows (<6000), using 50% for test set")
         else:
             test_size = min(3000 / len(df_modified), 0.5)
-            self.logger.info(f"Dataset has {len(df_modified)} rows, using test size of {test_size:.3f} (target: 3000 rows)")
+            self.logger.debug(f"Dataset has {len(df_modified)} rows, using test size of {test_size:.3f} (target: 3000 rows)")
         
         # Create stratified train/test split
         from sklearn.model_selection import train_test_split
@@ -118,7 +118,7 @@ class BaselinePredictor:
                 stratify=df_modified[secret_column],
                 random_state=random_state
             )
-            self.logger.info(f"Created stratified split: {len(df_train)} train, {len(df_test)} test")
+            self.logger.debug(f"Created stratified split: {len(df_train)} train, {len(df_test)} test")
         except ValueError as e:
             # Fallback to regular split if stratification fails (e.g., too few samples per class)
             self.logger.warning(f"Stratified split failed ({e}), using regular split")
@@ -127,7 +127,7 @@ class BaselinePredictor:
                 test_size=test_size,
                 random_state=random_state
             )
-            self.logger.info(f"Created regular split: {len(df_train)} train, {len(df_test)} test")
+            self.logger.debug(f"Created regular split: {len(df_train)} train, {len(df_test)} test")
         
         return self._select_best_model(df_train, df_test, random_state)
 
@@ -173,7 +173,7 @@ class BaselinePredictor:
                 df_pred_conf = self._build_otop_predictions(df_test)
                 prc_dict = self.si.compute_best_prc(df=df_pred_conf)
                 prc_score = prc_dict['prc']
-                self.logger.info(f"OneToOnePredictor PRC score: {prc_score:.4f}")
+                self.logger.debug(f"OneToOnePredictor PRC score: {prc_score:.4f}")
                 
                 if prc_score > best_prc:
                     best_prc = prc_score
@@ -183,17 +183,17 @@ class BaselinePredictor:
                 self.logger.warning(f"OneToOnePredictor failed: {e}")
         
         # Test ML models
-        self.logger.info("Determine best ML model:")
+        self.logger.debug("Determine best ML model:")
         for model_name, model in models:
             try:
-                self.logger.info(f"   Testing model: {model_name}")
+                self.logger.debug(f"   Testing model: {model_name}")
                 df_pred_conf = self._build_ml_model_predictions(df_train, df_test, model)
                 prc_dict = self.si.compute_best_prc(df=df_pred_conf)
                 prc_score = prc_dict['prc']
-                self.logger.info(f"    {model_name} PRC score: {prc_score:.4f}")
+                self.logger.debug(f"    {model_name} PRC score: {prc_score:.4f}")
                 for key, value in prc_dict.items():
                     if key != 'prc':
-                        self.logger.info(f"          {key}: {value}")
+                        self.logger.debug(f"          {key}: {value}")
                 
                 if prc_score > best_prc:
                     best_prc = prc_score
@@ -219,7 +219,7 @@ class BaselinePredictor:
         if best_model_name != "OneToOnePredictor":
             self.otop = None  # Clear if ML model was selected
         
-        self.logger.info(f"Selected model: {best_model_name} with PRC score: {best_prc:.4f}")
+        self.logger.debug(f"Selected model: {best_model_name} with PRC score: {best_prc:.4f}")
         return best_model_name, best_prc
     
     def _build_model_from_stored_config(self, df_train: pd.DataFrame, df_test: pd.DataFrame, random_state: Optional[int]) -> None:
@@ -344,7 +344,7 @@ class BaselinePredictor:
             # Check for near-perfect correlation between categorical feature and target (95%+)
             correlation_ratio = self._calculate_correlation_ratio(feature_values, target_values)
             if correlation_ratio >= 0.95:
-                self.logger.info(f"Reclassifying column '{cat_col}' as OneToOnePredictor due to near-perfect correlation ({correlation_ratio:.6f})")
+                self.logger.debug(f"Reclassifying column '{cat_col}' as OneToOnePredictor due to near-perfect correlation ({correlation_ratio:.6f})")
                 otop_candidates.append((cat_col, correlation_ratio))
                 # Remove from onehot_columns and add to non_onehot_columns
                 self.onehot_columns.remove(cat_col)
@@ -355,7 +355,7 @@ class BaselinePredictor:
         if otop_candidates:
             best_col, best_ratio = max(otop_candidates, key=lambda x: x[1])
             otop = OneToOnePredictor(df_train, feature=best_col, target=self.secret_column)
-            self.logger.info(f"Selected OneToOnePredictor for column '{best_col}' with correlation ratio: {best_ratio:.6f}")
+            self.logger.debug(f"Selected OneToOnePredictor for column '{best_col}' with correlation ratio: {best_ratio:.6f}")
             return otop
                 
         return None

@@ -64,21 +64,23 @@ def df():
     return make_df()
 
 @pytest.mark.parametrize(
-    "my_func, param1, param2, expected_alc",
+    "my_func, param1, param2, expected_alc, use_temp_results_path",
     [
-        (guess_with_prob, 1.0, 0.9, 0.12),  # All guesses correct, 90% of runs = abstain
-        (guess_with_prob, 1.0, 0.0, 1.0),  # All guesses correct, no abstain
-        (guess_with_prob, 0.0, 0.0, -1.0),  # All guesses wrong, no abstain
-        (guess_with_prob, 0.5, 0.0, 0.0),  # Half of guesses correct, no abstain
+        (guess_with_prob, 1.0, 0.9, 0.12, False),  # All guesses correct, 90% of runs = abstain
+        (guess_with_prob, 1.0, 0.0, 1.0, False),  # All guesses correct, no abstain
+        (guess_with_prob, 0.0, 0.0, -1.0, False),  # All guesses wrong, no abstain
+        (guess_with_prob, 0.5, 0.0, 0.0, False),  # Half of guesses correct, no abstain
+        (guess_with_prob, 1.0, 0.0, 1.0, True),  # results_path=None (TemporaryDirectory)
     ]
 )
-def test_basic(temp_dir, df, my_func, param1, param2, expected_alc):
+def test_basic(temp_dir, df, my_func, param1, param2, expected_alc, use_temp_results_path):
     """
     Runs the basic_test for each parameterized condition.
     """
     random.seed(42)  # <--- Add this line to fix random variation
+    results_path = None if use_temp_results_path else temp_dir
     # Initialize ALCManager
-    alcm = ALCManager(df, df.copy(), results_path=temp_dir, flush=True, random_state=42)
+    alcm = ALCManager(df, df.copy(), results_path=results_path, flush=True, random_state=42)
 
     # Run predictions
     for _, secret_value, _ in alcm.predictor(known_columns=['c1'], secret_column='c2'):
@@ -97,7 +99,7 @@ def test_basic(temp_dir, df, my_func, param1, param2, expected_alc):
         pp.pprint(alcm.halt_info)
         alcm.summarize_results()
     df_grouped = alcm.results(known_columns=['c1'], secret_column='c2')
-    alcm.close_logger()
+    alcm.cleanup()
     print("---------------------")
     for column in df_grouped.columns:
         print(f"{column}: {df_grouped.iloc[0][column]}")
@@ -116,3 +118,16 @@ def test_basic(temp_dir, df, my_func, param1, param2, expected_alc):
     alc = df_grouped.iloc[0]['alc']
     # Assert the ALC value is close to the expected value
     assert alc == pytest.approx(expected_alc, abs=0.1), f"Expected ALC: {expected_alc}, but got: {alc}"
+
+
+def test_none_results_path_uses_temp_dir_and_null_logger(df):
+    alcm = ALCManager(df, df.copy(), results_path=None, flush=True, random_state=42)
+    temp_path = alcm.results_path
+
+    assert temp_path is not None
+    assert os.path.isdir(temp_path)
+    assert not alcm.logger.propagate
+    assert any(isinstance(handler, logging.NullHandler) for handler in alcm.logger.handlers)
+
+    alcm.cleanup()
+    assert not os.path.exists(temp_path)

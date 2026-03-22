@@ -1,6 +1,8 @@
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
+from typing import Optional
+from uuid import uuid4
 
 def setup_logging(log_file_path:str, stream_level:int=logging.INFO, file_level:int=logging.INFO) -> logging.Logger:
     """
@@ -38,4 +40,21 @@ def setup_logging(log_file_path:str, stream_level:int=logging.INFO, file_level:i
     logger.addHandler(stream_handler)
     logger.addHandler(file_handler)
 
+    return logger
+
+
+def setup_null_logger(name: Optional[str] = None) -> logging.Logger:
+    """
+    Creates a logger that safely drops all log records.
+
+    Args:
+        name (Optional[str]): Logger name. If None, a unique name is generated.
+    """
+    if name is None:
+        name = f"anonymity_loss_coefficient.null.{uuid4()}"
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+    if not any(isinstance(handler, logging.NullHandler) for handler in logger.handlers):
+        logger.addHandler(logging.NullHandler())
     return logger
