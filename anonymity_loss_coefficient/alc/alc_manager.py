@@ -172,6 +172,20 @@ class ALCManager:
         # Other
         self.start_time = None
 
+    def get_directory_path(self) -> str:
+        """ Returns the active directory path for results, or an empty string if unavailable.
+            Note that if a temporary directory is being used, it may be cleaned up by the OS
+            once the process ends, so the temporary directory may not exist at that point.
+        """
+         
+        if hasattr(self, 'results_path') and self.results_path is not None:
+            return self.results_path
+        if hasattr(self, '_temp_dir') and self._temp_dir is not None:
+            return self._temp_dir.name
+        if hasattr(self, '_manual_temp_dir') and self._manual_temp_dir is not None:
+            return self._manual_temp_dir
+        return ''
+
     def cleanup(self):
         """Closes owned logger handlers and cleans up temp directory if used."""
         if getattr(self, '_owns_logger', False) and hasattr(self, 'logger') and self.logger:

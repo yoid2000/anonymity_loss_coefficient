@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 from typing import List, Any, Tuple
-import argparse
 from anonymity_loss_coefficient import ALCManager
 import pprint
 import warnings
@@ -69,21 +68,8 @@ def anonymize_data(df: pd.DataFrame) -> pd.DataFrame:
 def cb() -> str:
     print("```")
 
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the generic ALCManager example.")
-    parser.add_argument(
-        "--temp_dir",
-        action="store_true",
-        help="Use a temporary directory by passing results_path=None to ALCManager.",
-    )
-    return parser.parse_args()
-
 pp = pprint.PrettyPrinter(indent=4)
 np.random.seed(42)
-args = parse_args()
-use_temp_dir = args.temp_dir
-selected_results_path = None if use_temp_dir else "generic_example_files"
 
 print("## Example of using the ALCManager class to build attacks.\n")
 
@@ -106,10 +92,8 @@ syn_data = [anonymize_data(df_original) for _ in range(4)]
 print("\nAt this point, we have prepared the dataframes needed for the ALC measures.")
 print("\nThe `ALCManager` class is used for all operations. It prepares the data, runs the baseline model, holds the various predictions, computes the ALC measures, and writes the results to files.\n" \
 "\nTo prepare the data, it removes NaN rows, discretizes continuous variables, and encodes non-integer columns as integers. Note in particular that, unless the optional parameter `discertize_in_place` is set to True, it creates a new column for each discretized column, given the name `colname__discretized`. The original column is also kept. The discretized column should be used for the secret column, while the original column should be used for the known column.\nThe `ALCManager` passes the `attack_tags` to result files for later housekeeping.\nThe `flush` parameter (default `False`) tells the `ALCManager` to remove all previously recorded attacks. If set to `False`, the `ALCManager` will not repeat any attacks already run.")
-print("\nIf the `results_path` API parameter is set to None, then the `ALCManager` will use a temporary directory. Otherwise it uses the supplied directory path.")
-print(f'''\n`alcm = ALCManager(df_original, syn_data, results_path = {selected_results_path}, attack_name = "Example Attacks", attack_tags = {{'foo': 1, 'bar': 'simple'}}, flush = True)`''')
-alcm = ALCManager(df_original, syn_data, results_path=selected_results_path, attack_name="Example Attacks", attack_tags={'foo': 1, 'bar': 'simple'}, flush=True, random_state=42)
-actual_results_path = alcm.get_directory_path()
+print('''\n`alcm = ALCManager(df_original, syn_data, results_path = None, attack_name = "Example Attacks", attack_tags = {'foo': 1, 'bar': 'simple'}, flush = True)`''')
+alcm = ALCManager(df_original, syn_data, results_path = None, attack_name = "Example Attacks", attack_tags = {'foo': 1, 'bar': 'simple'}, flush = True, random_state=42)
 print("\nWe see for instance that the text column 't1' has been encoded as integers, and two discretized columns have been created from the continuous columns:")
 print("\n`alcm.df.orig_all.head()`")
 cb()
@@ -234,15 +218,16 @@ print("\nHere we see quite a different story. Since 'i0' and 't1' are perfectly 
 "(The reason `base_prec` and `attack_prec` are not perfect is because of how we compute precision: as the midpoint of the confidence interval rather than the actual predictions. The actual sampled precision, however, is also computed and can be viewed.)" \
 "Because the attack precision is no better than the base precision, the ALC is -1.0, meaning no loss of anonymity.")
 
-if not use_temp_dir:
-    print("\nBesides being able to obtain the results as dataframes, the method `summarize_results()` writes the results to CSV files and can generate plots as well:")
+print("\nBesides being able to obtain the results as dataframes, the method `summarize_results()` writes the results to CSV files and can generate plots as well:")
 
-    print('''\n`alcm.summarize_results()`''')
-    alcm.summarize_results()
+print('''\n`alcm.summarize_results()`''')
+alcm.summarize_results()
+temporary_path = alcm.get_directory_path()
 
-    print('''
-This produces the following files (which can be viewed in the `generic_example_files` directory):
+print('''
+This produces the following files (which can be viewed in some temp directory):
 * summary_raw.parquet: All of the predictions
 * summary_secret_known.csv: The precision, recall, and ALC scores for predictions grouped by secret column and known columns
 * summary.txt: A descriptive summary of the results
+
 ''')

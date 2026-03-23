@@ -6,6 +6,7 @@ import logging
 import pytest
 from typing import Tuple, Optional
 from anonymity_loss_coefficient import ALCManager
+import anonymity_loss_coefficient.alc.alc_manager as alc_manager_module
 
 debug = False
 
@@ -63,24 +64,34 @@ def df():
     """Fixture to create and return the DataFrame."""
     return make_df()
 
+
+@pytest.fixture
+def force_manual_temp_dir(monkeypatch):
+    """
+    Force ALCManager to skip tempfile.TemporaryDirectory and use its manual
+    per-run directory fallback, which is fully controllable by tests.
+    """
+    def _raise_permission_error(*args, **kwargs):
+        raise PermissionError("Simulated tempfile ACL issue")
+    monkeypatch.setattr(alc_manager_module.tempfile, "TemporaryDirectory", _raise_permission_error)
+
+
 @pytest.mark.parametrize(
-    "my_func, param1, param2, expected_alc, use_temp_results_path",
+    "my_func, param1, param2, expected_alc",
     [
-        (guess_with_prob, 1.0, 0.9, 0.12, False),  # All guesses correct, 90% of runs = abstain
-        (guess_with_prob, 1.0, 0.0, 1.0, False),  # All guesses correct, no abstain
-        (guess_with_prob, 0.0, 0.0, -1.0, False),  # All guesses wrong, no abstain
-        (guess_with_prob, 0.5, 0.0, 0.0, False),  # Half of guesses correct, no abstain
-        (guess_with_prob, 1.0, 0.0, 1.0, True),  # results_path=None (TemporaryDirectory)
+        (guess_with_prob, 1.0, 0.9, 0.12),  # All guesses correct, 90% of runs = abstain
+        (guess_with_prob, 1.0, 0.0, 1.0),  # All guesses correct, no abstain
+        (guess_with_prob, 0.0, 0.0, -1.0),  # All guesses wrong, no abstain
+        (guess_with_prob, 0.5, 0.0, 0.0),  # Half of guesses correct, no abstain
     ]
 )
-def test_basic(temp_dir, df, my_func, param1, param2, expected_alc, use_temp_results_path):
+def test_basic(temp_dir, df, my_func, param1, param2, expected_alc):
     """
     Runs the basic_test for each parameterized condition.
     """
     random.seed(42)  # <--- Add this line to fix random variation
-    results_path = None if use_temp_results_path else temp_dir
     # Initialize ALCManager
-    alcm = ALCManager(df, df.copy(), results_path=results_path, flush=True, random_state=42)
+    alcm = ALCManager(df, df.copy(), results_path=temp_dir, flush=True, random_state=42)
 
     # Run predictions
     for _, secret_value, _ in alcm.predictor(known_columns=['c1'], secret_column='c2'):
@@ -120,7 +131,7 @@ def test_basic(temp_dir, df, my_func, param1, param2, expected_alc, use_temp_res
     assert alc == pytest.approx(expected_alc, abs=0.1), f"Expected ALC: {expected_alc}, but got: {alc}"
 
 
-def test_none_results_path_uses_temp_dir_and_null_logger(df):
+def test_none_results_path_uses_temp_dir_and_null_logger(df, force_manual_temp_dir):
     alcm = ALCManager(df, df.copy(), results_path=None, flush=True, random_state=42)
     temp_path = alcm.results_path
 
