@@ -12,13 +12,12 @@ from .params import ALCParams
 
 class Reporter():
     def __init__(self,
-                 results_path: str,
+                 results_path: Optional[str],
                  attack_name: str,
                  logger: logging.Logger,
                  flush: bool,
                  ) -> None:
         self.results_path = results_path
-        os.makedirs(self.results_path, exist_ok=True)
         self.attack_name = attack_name
         self.logger = logger
         self.all_used_known_columns = []
@@ -27,14 +26,16 @@ class Reporter():
         self.list_results_done = []
         self.list_secret_known_results_done = []
         self.df_secret_results = None
-        summary_raw_path = os.path.join(self.results_path, 'summary_raw.parquet')
-        summary_secret_known_path = os.path.join(self.results_path, 'summary_secret_known.csv')
         self.df_already_attacked = None
-        if flush:
-            self._remove_file(summary_raw_path)
-            self._remove_file(summary_secret_known_path)
-        else:
-            self._read_results(summary_raw_path, summary_secret_known_path)
+        if self.results_path is not None:
+            os.makedirs(self.results_path, exist_ok=True)
+            summary_raw_path = os.path.join(self.results_path, 'summary_raw.parquet')
+            summary_secret_known_path = os.path.join(self.results_path, 'summary_secret_known.csv')
+            if flush:
+                self._remove_file(summary_raw_path)
+                self._remove_file(summary_secret_known_path)
+            else:
+                self._read_results(summary_raw_path, summary_secret_known_path)
 
     def _read_results(self, summary_raw_path: str, summary_secret_known_path: str) -> None:
         # Read the summary_raw_path if it exists and convert to a list of dicts
@@ -194,6 +195,9 @@ class Reporter():
                           with_text: bool = True,
                           with_plot: bool = True,
                           ) -> bool:
+        if self.results_path is None:
+            self.logger.warning("Warning: results_path is None. No summary files will be written.")
+            return False
         if len(self.list_results_done) == 0:
             self.logger.warning("Warning: No results to summarize.")
             return False

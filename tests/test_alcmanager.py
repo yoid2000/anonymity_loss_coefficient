@@ -6,7 +6,6 @@ import logging
 import pytest
 from typing import Tuple, Optional
 from anonymity_loss_coefficient import ALCManager
-import anonymity_loss_coefficient.alc.alc_manager as alc_manager_module
 
 debug = False
 
@@ -64,18 +63,6 @@ def df():
     """Fixture to create and return the DataFrame."""
     return make_df()
 
-
-@pytest.fixture
-def force_manual_temp_dir(monkeypatch):
-    """
-    Force ALCManager to skip tempfile.TemporaryDirectory and use its manual
-    per-run directory fallback, which is fully controllable by tests.
-    """
-    def _raise_permission_error(*args, **kwargs):
-        raise PermissionError("Simulated tempfile ACL issue")
-    monkeypatch.setattr(alc_manager_module.tempfile, "TemporaryDirectory", _raise_permission_error)
-
-
 @pytest.mark.parametrize(
     "my_func, param1, param2, expected_alc",
     [
@@ -131,14 +118,13 @@ def test_basic(temp_dir, df, my_func, param1, param2, expected_alc):
     assert alc == pytest.approx(expected_alc, abs=0.1), f"Expected ALC: {expected_alc}, but got: {alc}"
 
 
-def test_none_results_path_uses_temp_dir_and_null_logger(df, force_manual_temp_dir):
+def test_none_results_path_uses_none_and_null_logger(df):
     alcm = ALCManager(df, df.copy(), results_path=None, flush=True, random_state=42)
-    temp_path = alcm.results_path
 
-    assert temp_path is not None
-    assert os.path.isdir(temp_path)
+    assert alcm.results_path is None
+    assert alcm.get_directory_path() == ''
     assert not alcm.logger.propagate
     assert any(isinstance(handler, logging.NullHandler) for handler in alcm.logger.handlers)
+    assert alcm.summarize_results() is False
 
     alcm.cleanup()
-    assert not os.path.exists(temp_path)

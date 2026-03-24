@@ -7,6 +7,11 @@ import pprint
 import warnings
 #warnings.filterwarnings('error')
 
+'''
+If run with the --no_files flag, then it does not generate any results files. Otherwise, it
+saves results files in generic_example_files.
+'''
+
 def make_data(num_rows: int) -> pd.DataFrame:
     t1_values = np.random.choice(['a', 'b', 'c', 'd'], size=num_rows)
     t1_to_i1 = {'a': 1, 'b': 2, 'c': 3, 'd': 4}
@@ -73,7 +78,7 @@ def cb() -> str:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the generic ALCManager example.")
     parser.add_argument(
-        "--temp_dir",
+        "--no_files",
         action="store_true",
         help="Use a temporary directory by passing results_path=None to ALCManager.",
     )
@@ -82,8 +87,8 @@ def parse_args() -> argparse.Namespace:
 pp = pprint.PrettyPrinter(indent=4)
 np.random.seed(42)
 args = parse_args()
-use_temp_dir = args.temp_dir
-selected_results_path = None if use_temp_dir else "generic_example_files"
+use_no_files = args.no_files
+selected_results_path = None if use_no_files else "generic_example_files"
 
 print("## Example of using the ALCManager class to build attacks.\n")
 
@@ -234,7 +239,7 @@ print("\nHere we see quite a different story. Since 'i0' and 't1' are perfectly 
 "(The reason `base_prec` and `attack_prec` are not perfect is because of how we compute precision: as the midpoint of the confidence interval rather than the actual predictions. The actual sampled precision, however, is also computed and can be viewed.)" \
 "Because the attack precision is no better than the base precision, the ALC is -1.0, meaning no loss of anonymity.")
 
-if not use_temp_dir:
+if not use_no_files:
     print("\nBesides being able to obtain the results as dataframes, the method `summarize_results()` writes the results to CSV files and can generate plots as well:")
 
     print('''\n`alcm.summarize_results()`''')

@@ -5,15 +5,13 @@ import pandas as pd
 import logging
 import random
 import time
-import tempfile
-import shutil
-from uuid import uuid4
 from .reporting import *
 from .data_files import DataFiles
 from .baseline_predictor import BaselinePredictor
 from .score_interval import ScoreInterval
 from .anonymity_loss_coefficient import AnonymityLossCoefficient
 from .reporting import Reporter
+from . import reporting as reporting_module
 from .params import ALCParams
 from anonymity_loss_coefficient.utils import setup_logging, setup_null_logger
 import pprint
@@ -89,27 +87,7 @@ class ALCManager:
             for k, v in attack_tags.items():
                 self.alcp.set_param(self.alcp.atk, k, v)
 
-        self._temp_dir: Optional[tempfile.TemporaryDirectory] = None
-        self._manual_temp_dir: Optional[str] = None
-        if results_path is None:
-            temp_dir = None
-            try:
-                temp_dir = tempfile.TemporaryDirectory(prefix='alc_manager_')
-                # Verify the created directory is actually usable.
-                os.listdir(temp_dir.name)
-                self._temp_dir = temp_dir
-                self.results_path = temp_dir.name
-            except Exception:
-                if temp_dir is not None:
-                    try:
-                        temp_dir.cleanup()
-                    except Exception:
-                        pass
-                self._manual_temp_dir = os.path.join(os.getcwd(), f'alc_manager_{uuid4().hex}')
-                os.makedirs(self._manual_temp_dir, exist_ok=False)
-                self.results_path = self._manual_temp_dir
-        else:
-            self.results_path = results_path
+        self.results_path = results_path
 
         self._owns_logger = False
         self.logger = logger
@@ -173,35 +151,17 @@ class ALCManager:
         self.start_time = None
 
     def get_directory_path(self) -> str:
-        """ Returns the active directory path for results, or an empty string if unavailable.
-            Note that if a temporary directory is being used, it may be cleaned up by the OS
-            once the process ends, so the temporary directory may not exist at that point.
-        """
-         
+        """Returns the active results directory path, or an empty string if none is set."""
         if hasattr(self, 'results_path') and self.results_path is not None:
             return self.results_path
-        if hasattr(self, '_temp_dir') and self._temp_dir is not None:
-            return self._temp_dir.name
-        if hasattr(self, '_manual_temp_dir') and self._manual_temp_dir is not None:
-            return self._manual_temp_dir
         return ''
 
     def cleanup(self):
-        """Closes owned logger handlers and cleans up temp directory if used."""
+        """Closes owned logger handlers."""
         if getattr(self, '_owns_logger', False) and hasattr(self, 'logger') and self.logger:
             for handler in self.logger.handlers[:]:
                 self.logger.removeHandler(handler)
                 handler.close()
-        if hasattr(self, '_temp_dir') and self._temp_dir is not None:
-            try:
-                self._temp_dir.cleanup()
-            except Exception:
-                pass
-            self._temp_dir = None
-        if hasattr(self, '_manual_temp_dir') and self._manual_temp_dir is not None:
-            if os.path.exists(self._manual_temp_dir):
-                shutil.rmtree(self._manual_temp_dir, ignore_errors=True)
-            self._manual_temp_dir = None
 
     def predictor(self,
                   known_columns: List[str],
@@ -401,11 +361,38 @@ class ALCManager:
         if self.attack_in_progress:
             self.logger.warning("Warning: Attack is still in progress. Summarize aborted.")
             return False
+        if self.results_path is None:
+            self.logger.warning("Warning: results_path is None. summarize_results() skipped.")
+            return False
         return self.rep.summarize_results(strong_thresh=strong_thresh,
                                           risk_thresh=risk_thresh,
                                           with_text=with_text,
                                           with_plot=with_plot,
                                           )
+
+    def make_text_summary(self,
+                          strong_thresh: float = 0.5,
+                          risk_thresh: float = 0.7) -> str:
+        """
+        Returns the same summary text that summarize_results(with_text=True)
+        would write to summary.txt, without writing any files.
+        """
+        if self.attack_in_progress:
+            self.logger.warning("Warning: Attack is still in progress. Cannot make text summary.")
+            return ''
+        df_secret_known_results = self.rep.alc_per_secret_and_known_df()
+        if df_secret_known_results is None or len(df_secret_known_results) == 0:
+            self.logger.warning("Warning: No results to summarize.")
+            return ''
+        return reporting_module.make_text_summary(
+            df_secret_known=df_secret_known_results,
+            strong_thresh=strong_thresh,
+            risk_thresh=risk_thresh,
+            all_secret_columns=self.rep.all_used_secret_columns,
+            all_known_columns=self.rep.all_used_known_columns,
+            attack_name=self.rep.attack_name,
+        )
+
     def _add_result(self,
                    predict_type: str,
                    known_columns: List[str],
@@ -533,6 +520,27 @@ class ALCManager:
             self.logger.warning("Warning: Attack is still in progress. Cannot get results.")
             return None
         return self.rep.alc_per_secret_and_known_df(known_columns, secret_column)
+
+
+def prediction_results(alcm: ALCManager,
+                       known_columns: Optional[List[str]] = None,
+                       secret_column: Optional[str] = None) -> Optional[pd.DataFrame]:
+    """Convenience wrapper for ALCManager.prediction_results()."""
+    return alcm.prediction_results(known_columns=known_columns, secret_column=secret_column)
+
+
+def results(alcm: ALCManager,
+            known_columns: Optional[List[str]] = None,
+            secret_column: Optional[str] = None) -> Optional[pd.DataFrame]:
+    """Convenience wrapper for ALCManager.results()."""
+    return alcm.results(known_columns=known_columns, secret_column=secret_column)
+
+
+def make_text_summary(alcm: ALCManager,
+                      strong_thresh: float = 0.5,
+                      risk_thresh: float = 0.7) -> str:
+    """Convenience wrapper for ALCManager.make_text_summary()."""
+    return alcm.make_text_summary(strong_thresh=strong_thresh, risk_thresh=risk_thresh)
             
 # TODO: Everything after this gets removed after experimentation completed
 def _swap_anonymize(df: pd.DataFrame, swap_fraction: float) -> pd.DataFrame:

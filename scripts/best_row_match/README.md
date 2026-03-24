@@ -1,10 +1,16 @@
-# Best run_brm_attack.py
+# Scripts associated with the best_row_match attack
+
+There are two scripts. `run_brm_attack.py` operates as a self-contained program to configure and run attacks. It does not require writing python code. It's input and output are files.
+
+`python_example.py` contains examples of how to use the class `BrmAttack` and `brm_attack_simple()` APIs from `brm_attack.py`.
+
+## run_brm_attack.py
 
 This code example runs the Best Row Match attack found in `anonymity_loss_coefficient/attacks/best_row_match/`.
 
 It can be used either as an example for how to write your own code to run the Best Row Match attack, or it can be used as a complete attack itself.
 
-## To run
+### To run
 
 Pip install `anonymity_loss_coefficient`.
 
@@ -30,7 +36,7 @@ Note that `run_brm_attack.py` updates its results after every run. If --one is n
 
 For quick testing, use the setup directories already setup in the `files` directory. In this case, copy `files/attack_files_anon` or `files/attack_files_raw` to your `/path/to/attack_directory` and run as above.
 
-## Setup
+### Setup
 
 `run_brm_attack.py` expects to find everything it needs in `attack_directory/inputs`. Specifically, the following should be placed there:
 
@@ -43,7 +49,7 @@ Note that the larger the synthetic datasets are, the longer it'll take to run th
 See the directories under the `files` directory for examples of the setup.
 
 
-## Results
+### Results
 
 `run_brm_attack.py` creates a directory `results` under `attack_diretory`. `results` contains these files:
 
@@ -59,7 +65,7 @@ See the directories under the `files` directory for examples of the setup.
 ALC scores of ALC=0.5 or less can be regarded as having very strong anonymity.
 
 
-## Operation
+### Operation
 
 `run_brm_attack.py` does the following:
 
@@ -75,3 +81,8 @@ For each secret:
 * It updates the three results files. In this fashion, the results files continuously receive more results data as `run_brm_attack.py` runs.
 
 Note that `run_brm_attack.py` can take a long time to run (many hours), so it is good to just let it go while the results files build up.
+
+## python_example.py
+
+`python_example.py` can be run as is. It's content is self-explanatory.
+

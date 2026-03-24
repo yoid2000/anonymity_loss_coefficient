@@ -4,7 +4,7 @@ This code contains:
 
 1. Code to support developing attacks on anonymized data using the Anonymity Loss Coefficient.
 2. A set of attacks.
-3. Example code for running the attacks.
+3. Example code for composing new attacks, running the the existing attacks, and interfacing with the existing attacks in Python.
 
 For users only interested in running existing attacks, the `scripts` directory contains those attacks. Please see `scripts/README.md` for more information.
 

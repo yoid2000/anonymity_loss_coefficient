@@ -3,7 +3,7 @@ import pprint
 import numpy as np
 import pandas as pd
 
-from anonymity_loss_coefficient import brm_attack_simple, BrmAttack
+from anonymity_loss_coefficient import brm_attack_simple, BrmAttack, prediction_results, results, make_text_summary
 
 
 def make_original_df(num_rows: int = 1000, random_state: int = 42) -> pd.DataFrame:
@@ -89,6 +89,10 @@ def main() -> None:
     print("Here are the most important attack measures for the first attack:")
     for column in ["secret_column", "known_columns", "alc", "base_prec", "base_recall", "base_prc", "attack_prec", "attack_recall", "attack_prc"]:
         print(f"    {column}: {df_attack_measures.iloc[0][column]}")
+
+    print("Finally, we can obtain a summary report")
+    summary_report = brm.alcm.make_text_summary()
+    print(summary_report)
 
 if __name__ == "__main__":
     main()
