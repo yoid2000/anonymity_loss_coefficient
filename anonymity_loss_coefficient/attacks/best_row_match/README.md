@@ -16,7 +16,9 @@ We currently don't recognize datetime columns as datetime columns.
 
 ## Interface
 
-`brm_attack.py` contains the `BrmAttack` class:
+`brm_attack.py` contains the `BrmAttack` class. This class is designed to be able to run multiple attacks on the same dataset (see methods below), make the attack results available as a dataframe, and optionally store the results in a specified directory. In addition, there is a simple helper function `brm_attack_simple()` that runs one attack and returns the resulting measure.
+
+`BrmAttack` is called like this:
 
 ```
 from anonymity_loss_coefficient.attacks import BrmAttack
@@ -31,7 +33,7 @@ The required parameters are:
 
 * `df_original` is the original dataset.
 * `anon` is a list of one or more anonymized datasets. 
-* `results_path` is a path to the directory where the results of the attack should be stored.
+* `results_path` is a path to the directory where the results of the attack are stored. It can be `None` if the results should not be stored anywhere, but rather be read in python.
 
 
 `BrmAttack` exposes three methods:

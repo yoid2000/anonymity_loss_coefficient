@@ -5,16 +5,105 @@ from typing import List, Union, Any, Tuple, Optional
 from itertools import combinations
 import logging
 from anonymity_loss_coefficient.alc.alc_manager import ALCManager
-from anonymity_loss_coefficient.utils import get_good_known_column_sets, setup_logging, find_best_matches, modal_fraction, best_match_confidence
+from anonymity_loss_coefficient.utils import get_good_known_column_sets, setup_logging, setup_null_logger, find_best_matches, modal_fraction, best_match_confidence
 import pprint
 
 pp = pprint.PrettyPrinter(indent=4)
+
+
+def brm_attack_simple(
+    original: pd.DataFrame,
+    anon: Union[pd.DataFrame, List[pd.DataFrame]],
+    secret_column: str,
+) -> dict:
+    """
+    Convenience wrapper for a single BRM attack.
+
+    Runs one attack using all columns except secret_column as known columns,
+    and returns a compact dictionary of key metrics.
+    """
+    if not isinstance(original, pd.DataFrame):
+        raise TypeError("original must be a pandas DataFrame")
+    if not isinstance(secret_column, str):
+        raise TypeError("secret_column must be a string")
+    if secret_column not in original.columns:
+        raise ValueError(f"secret_column '{secret_column}' is not a column in original")
+
+    if isinstance(anon, pd.DataFrame):
+        anon_list = [anon]
+    elif isinstance(anon, list) and all(isinstance(df, pd.DataFrame) for df in anon):
+        anon_list = anon
+    else:
+        raise TypeError("anon must be a pandas DataFrame or a list of pandas DataFrames")
+    if len(anon_list) == 0:
+        raise ValueError("anon list must contain at least one DataFrame")
+
+    original_columns = set(original.columns)
+    for i, df_anon in enumerate(anon_list):
+        extra_cols = set(df_anon.columns) - original_columns
+        if extra_cols:
+            raise ValueError(
+                f"anon DataFrame at index {i} has columns not in original: {sorted(extra_cols)}"
+            )
+
+    known_columns = [col for col in original.columns if col != secret_column]
+
+    brm = BrmAttack(df_original=original, anon=anon)
+    brm.run_one_attack(secret_column=secret_column, known_columns=known_columns)
+
+    df_results = brm.alcm.results()
+    if df_results is None:
+        raise ValueError("No results were returned by brm.alcm.results()")
+    if len(df_results) != 1:
+        raise ValueError(f"Expected exactly one result row, got {len(df_results)}")
+
+    row = df_results.iloc[0]
+
+    def _to_python_scalar(value: Any) -> Any:
+        if hasattr(value, "item"):
+            try:
+                return value.item()
+            except Exception:
+                return value
+        return value
+
+    excluded_misc_keys = {
+        "base_prec",
+        "base_recall",
+        "base_prc",
+        "attack_prec",
+        "attack_recall",
+        "attack_prc",
+        "alc",
+    }
+
+    result = {
+        "alc": _to_python_scalar(row["alc"]),
+        "baseline": {
+            "precision": _to_python_scalar(row["base_prec"]),
+            "recall": _to_python_scalar(row["base_recall"]),
+            "prc": _to_python_scalar(row["base_prc"]),
+        },
+        "attack": {
+            "precision": _to_python_scalar(row["attack_prec"]),
+            "recall": _to_python_scalar(row["attack_recall"]),
+            "prc": _to_python_scalar(row["attack_prc"]),
+        },
+        "misc": {
+            key: _to_python_scalar(value)
+            for key, value in row.items()
+            if key not in excluded_misc_keys
+        },
+    }
+    brm.alcm.cleanup()
+    return result
+
 
 class BrmAttack:
     def __init__(self,
                  df_original: pd.DataFrame,
                  anon: Union[pd.DataFrame, List[pd.DataFrame]],
-                 results_path: str = None,
+                 results_path: Optional[str] = None,
                  max_known_col_sets: int = 1000,
                  known_cols_sets_unique_threshold: float = 0.45,
                  num_per_secret_attacks: int = 100,
@@ -39,12 +128,15 @@ class BrmAttack:
         self.num_per_secret_attacks = num_per_secret_attacks
         self.attack_name = attack_name
         self.original_columns = df_original.columns.tolist()
-        logger_path = os.path.join(results_path, 'brm_attack.log')
         file_level = logging.INFO
         if verbose:
             file_level = logging.DEBUG
         self.no_counter = no_counter
-        self.logger = setup_logging(log_file_path=logger_path, file_level=file_level)
+        if self.results_path is None:
+            self.logger = setup_null_logger()
+        else:
+            logger_path = os.path.join(self.results_path, 'brm_attack.log')
+            self.logger = setup_logging(log_file_path=logger_path, file_level=file_level)
         self.logger.info(f"Original DataFrame shape: {df_original.shape}")
         self.logger.info(f"Original columns: {self.original_columns}")
 
@@ -61,12 +153,13 @@ class BrmAttack:
             raise KeyError(f"Duplicate keys found in additional_tags: {overlap}. Please do not use these keys.")
         attack_tags.update(additional_tags)
 
+        alcm_logger = None if self.results_path is None else self.logger
         self.alcm = ALCManager(df_original,
                                anon,
                                results_path = self.results_path,
                                attack_name = self.attack_name,
                                attack_tags=attack_tags,
-                               logger=self.logger,
+                               logger=alcm_logger,
                                prior_experiment_swap_fraction=self.prior_experiment_swap_fraction,
                                flush=self.flush)
         # The known columns are the pre-discretized continuous columns and categorical
@@ -131,8 +224,8 @@ class BrmAttack:
             print("\r", end="")
         self.logger.info(f'''\n   Finished after {self.alcm.halt_info['num_attacks']} attacks with ALC {self.alcm.halt_info['alc'] if 'alc' in self.alcm.halt_info else 'unknown'} for reason "{self.alcm.halt_info['reason']}"''')
 
-
-        self.alcm.summarize_results(with_plot=True)
+        if self.results_path is not None:
+            self.alcm.summarize_results(with_plot=True)
 
     def run_auto_attack(self, secret_columns: List[str] = None, known_columns: List[str] = None) -> None:
         '''
