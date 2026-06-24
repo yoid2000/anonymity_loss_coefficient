@@ -16,6 +16,8 @@ class _ParamGroup:
     prc_abs_weight: float 
     recall_adjust_min_intercept: float 
     recall_adjust_strength: float 
+    prc_type: str
+    beta: float
     disc_max: int 
     disc_min: int 
     disc_bins: int 
@@ -54,6 +56,8 @@ class ALCParams:
             prc_abs_weight=0.0,
             recall_adjust_min_intercept=1/10000,
             recall_adjust_strength=3.0,
+            prc_type='fbeta',
+            beta=0.05,
         )
         self.df = _ParamGroup(
             disc_max=50,

@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Optional, Dict
+from typing import Optional, Union
 
 
 class AnonymityLossCoefficient:
@@ -20,30 +20,48 @@ class AnonymityLossCoefficient:
                  prc_abs_weight: float = 0.0,
                  recall_adjust_min_intercept: float = 1/10000,
                  recall_adjust_strength: float = 3.0,
+                 prc_type: str = 'fbeta',
+                 beta: float = 0.05,
                  ) -> None:
         # prc_abs_weight is the weight given to the absolute PRC difference
-        self.prc_abs_weight: float = 0.0
+        self.prc_abs_weight: float = prc_abs_weight
         # recall_adjust_min_intercept is the recall value below which precision
         # has no effect on the PRC
-        self.recall_adjust_min_intercept: float = 1/10000
+        self.recall_adjust_min_intercept: float = recall_adjust_min_intercept
         # Higher recall_adjust_strength leads to lower recall adjustment
-        self.recall_adjust_strength: float = 3.0
+        self.recall_adjust_strength: float = recall_adjust_strength
+        self.prc_type: str = prc_type
+        self.beta: float = beta
+        self._validate_prc_type()
 
-    def set_param(self, param: str, value: float) -> None:
+    def _validate_prc_type(self) -> None:
+        if self.prc_type not in ('prc', 'fbeta'):
+            raise ValueError('prc_type must be either "prc" or "fbeta"')
+
+    def set_param(self, param: str, value: Union[float, str]) -> None:
         if param == 'prc_abs_weight':
-            self.prc_abs_weight = value
+            self.prc_abs_weight = float(value)
         if param == 'recall_adjust_min_intercept':
-            self.recall_adjust_min_intercept = value
+            self.recall_adjust_min_intercept = float(value)
         if param == 'recall_adjust_strength':
-            self.recall_adjust_strength = value
+            self.recall_adjust_strength = float(value)
+        if param == 'prc_type':
+            self.prc_type = str(value)
+            self._validate_prc_type()
+        if param == 'beta':
+            self.beta = float(value)
 
-    def get_param(self, param: str) -> Optional[float]:
+    def get_param(self, param: str) -> Optional[Union[float, str]]:
         if param == 'prc_abs_weight':
             return self.prc_abs_weight
         if param == 'recall_adjust_min_intercept':
             return self.recall_adjust_min_intercept
         if param == 'recall_adjust_strength':
             return self.recall_adjust_strength
+        if param == 'prc_type':
+            return self.prc_type
+        if param == 'beta':
+            return self.beta
         return None
 
     def _recall_adjust(self, recall: float) -> float:
@@ -66,22 +84,37 @@ class AnonymityLossCoefficient:
         prc_improve = (self.prc_abs_weight * prc_abs) + ((1 - self.prc_abs_weight) * prc_rel)
         return prc_improve
 
+    def _fbeta(self, prec: float, recall: float) -> float:
+        beta_squared = self.beta ** 2
+        denominator = beta_squared * prec + recall
+        if denominator == 0.0:
+            return 0.0
+        return (1 + beta_squared) * (prec * recall) / denominator
+
+    def _adjusted_prc(self, prec: float, recall: float) -> float:
+        if recall <= self.recall_adjust_min_intercept:
+            return recall
+        Rmin = self.recall_adjust_min_intercept
+        alpha = self.recall_adjust_strength
+        R = recall
+        P = prec
+        return (1 - ((np.log10(R) / np.log10(Rmin)) ** alpha)) * P
+
     def prc(self, prec: float, recall: float) -> float:
-        ''' Generates the precision-recall-coefficient, PRC.
-            prev is the precision of the attack, and recall is the recall.
+        ''' Generates the configured precision-recall metric.
+            prec is the precision of the attack, and recall is the recall.
         '''
         # We do this adjusting because of floating point inaccuraccy
         prec = min(prec, 1.0)
         prec = max(prec, 0.0)
         recall = min(recall, 1.0)
         recall = max(recall, 0.0)
-        if recall <= self.recall_adjust_min_intercept:
-            return round(float(recall), 4)
-        Rmin = self.recall_adjust_min_intercept
-        alpha = self.recall_adjust_strength
-        R = recall
-        P = prec
-        return round(float((1 - ((np.log10(R) / np.log10(Rmin)) ** alpha)) * P), 4)
+        if self.prc_type == 'prc':
+            return round(float(self._adjusted_prc(prec, recall)), 4)
+        if self.prc_type == 'fbeta':
+            return round(float(self._fbeta(prec, recall)), 4)
+        self._validate_prc_type()
+        return 0.0
 
     def alc(self,
             p_base: Optional[float] = None,

@@ -41,6 +41,8 @@ class ALCManager:
                        prc_abs_weight: Optional[float] = None,
                        recall_adjust_min_intercept: Optional[float] = None,
                        recall_adjust_strength: Optional[float] = None,
+                       prc_type: Optional[str] = None,
+                       beta: Optional[float] = None,
                        # DataFiles parameters
                        disc_max: Optional[int] = None,
                        disc_min: Optional[int] = None,
@@ -70,6 +72,8 @@ class ALCManager:
         self.alcp.set_param(self.alcp.alc, 'prc_abs_weight', prc_abs_weight)
         self.alcp.set_param(self.alcp.alc, 'recall_adjust_min_intercept', recall_adjust_min_intercept)
         self.alcp.set_param(self.alcp.alc, 'recall_adjust_strength', recall_adjust_strength)
+        self.alcp.set_param(self.alcp.alc, 'prc_type', prc_type)
+        self.alcp.set_param(self.alcp.alc, 'beta', beta)
 
         self.alcp.set_param(self.alcp.si, 'si_type', si_type)
         self.alcp.set_param(self.alcp.si, 'si_confidence', si_confidence)
@@ -116,6 +120,8 @@ class ALCManager:
             prc_abs_weight=self.alcp.alc.prc_abs_weight,
             recall_adjust_min_intercept=self.alcp.alc.recall_adjust_min_intercept,
             recall_adjust_strength=self.alcp.alc.recall_adjust_strength,
+            prc_type=self.alcp.alc.prc_type,
+            beta=self.alcp.alc.beta,
         )
         self.model_name = None
         self.expected_prc = None
